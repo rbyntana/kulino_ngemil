@@ -1,0 +1,90 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// datasource db {
+//   provider = "sqlite"
+//   url      = env("DATABASE_URL")
+// }
+
+// SESUDAH (PostgreSQL - Supabase):
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model RawMaterial {
+  id          String   @id @default(cuid())
+  name        String
+  unitPrice   Float
+  quantity    Float
+  unit        String
+  totalPrice  Float
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  menuItems   MenuItem[]
+}
+
+model Size {
+  id        String  @id @default(cuid())
+  size      String
+  price     Float
+  stock     Int
+  menuId    String
+  menu      Menu    @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  sales     Sale[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Menu {
+  id          String   @id @default(cuid())
+  name        String
+  image       String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  sizes       Size[]
+  sales       Sale[]
+  rawMaterials MenuItem[]
+}
+
+model MenuItem {
+  id              String       @id @default(cuid())
+  menuId          String
+  rawMaterialId   String
+  quantity        Float
+  menu            Menu         @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  rawMaterial     RawMaterial  @relation(fields: [rawMaterialId], references: [id], onDelete: Cascade)
+  createdAt       DateTime     @default(now())
+}
+
+model Sale {
+  id            String       @id @default(cuid())
+  menuId        String
+  sizeId        String
+  quantity      Int
+  price         Float
+  total         Float
+  date          DateTime     @default(now())
+  createdAt     DateTime     @default(now())
+  menu          Menu         @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  size          Size         @relation(fields: [sizeId], references: [id], onDelete: Cascade)
+  transactionId String?      @unique
+  transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  type        String   // INCOME or EXPENSE
+  amount      Float
+  description String
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+  sale        Sale?
+}
