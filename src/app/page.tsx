@@ -299,7 +299,22 @@ export default function Home() {
   } | null>(null)
   const [isPreviewLoading, setIsPreviewLoading] = useState(false)
 
-  useEffect(() => {
+    useEffect(() => {
+    // Cek apakah ada perintah Force Reset dari Vercel
+    const forceResetValue = process.env.NEXT_PUBLIC_PRISMA_FORCE_RESET;
+    
+    if (forceResetValue) {
+      console.log("Force Reset Triggered via Env Var");
+      // Di sini kita panggil API Reset Database
+      fetch('/api/reset-database', { method: 'POST' })
+        .then(() => {
+           alert("Database berhasil di-reset ulang oleh server!");
+           window.location.reload(); // Refresh halaman
+        })
+        .catch(err => console.error(err));
+    }
+
+    // Jalankan fetch data normal
     fetchRawMaterials()
     fetchMenus()
     fetchTransactions()
