@@ -109,9 +109,5 @@ model Transaction {
   
   // Relasi BARU ke SalesHeader (Untuk transaksi cart belanja)
   salesHeaderId String?  @unique 
-  salesHeader   SalesHeader? @relation("transaksiUang",fields: [salesHeaderId], references: [id])
-
-  // HAPUS atau KOMENTARI bagian bawah ini:
-  // saleId        String? @unique
-  // sale          Sale?    @relation(fields: [saleId], references: [id])
+  salesHeader   SalesHeader? @relation("transaksiUang", fields: [salesHeaderId], references: [id])
 }
