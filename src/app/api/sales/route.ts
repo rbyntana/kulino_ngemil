@@ -1,97 +1,104 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-// POST create sale
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { menuId, sizeId, quantity } = body;
+    const { buyerName, totalAmount, items } = body;
 
-    // Get the size details
-    const size = await db.size.findUnique({
-      where: { id: sizeId },
-      include: { menu: true }
-    });
-
-    if (!size) {
-      return NextResponse.json({ error: 'Size not found' }, { status: 404 });
+    if (!buyerName || !items || items.length === 0) {
+      return NextResponse.json({ error: 'Data tidak lengkap' }, { status: 400 });
     }
 
-    // Check if enough stock
-    if (size.stock < quantity) {
-      return NextResponse.json({ error: 'Insufficient stock' }, { status: 400 });
+    // 1. Validasi Stok dan Kumpulkan Data
+    const itemsToProcess = [];
+
+    for (const item of items) {
+      const size = await db.size.findUnique({
+        where: { id: item.sizeId },
+        include: { menu: true }
+      });
+
+      if (!size) {
+        return NextResponse.json({ error: `Size dengan ID ${item.sizeId} tidak ditemukan` }, { status: 404 });
+      }
+
+      if (size.stock < item.qty) {
+        return NextResponse.json({ error: `Stok tidak cukup untuk menu ${size.menu.name} (${size.size})` }, { status: 400 });
+      }
+
+      itemsToProcess.push({
+        sizeData: size,
+        qty: item.qty,
+        price: item.price
+      });
     }
 
-    const total = size.price * quantity;
-
-    // Get current time in UTC without timezone issues
+    // Waktu UTC konsisten
     const now = new Date();
-    const utcNow = new Date(
-      Date.UTC(
-        now.getUTCFullYear(),
-        now.getUTCMonth(),
-        now.getUTCDate(),
-        now.getUTCHours(),
-        now.getUTCMinutes(),
-        now.getUTCSeconds(),
-        now.getUTCMilliseconds()
-      )
-    );
+    const utcNow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), now.getUTCHours(), now.getUTCMinutes()));
 
-    console.log('=== SAVING SALE ===');
-    console.log('Local time:', now.toISOString());
-    console.log('UTC time:', utcNow.toISOString());
-    console.log('Menu:', size.menu.name);
-    console.log('Size:', size.size.size);
-    console.log('Quantity:', quantity);
-    console.log('Total:', total);
+    // 2. Buat SalesHeader
+        // ... (kode sebelumnya sama) ...
 
-    // Create sale with UTC date
-    const sale = await db.sale.create({
+    // 2. Buat SalesHeader
+    const salesHeader = await db.salesHeader.create({
       data: {
-        menuId,
-        sizeId,
-        quantity: parseInt(quantity),
-        price: size.price,
-        total,
-        date: utcNow  // Store as UTC
-      }
+        buyerName: buyerName,
+        totalAmount: totalAmount,
+        date: utcNow,
+        items: {
+          create: itemsToProcess.map(item => {
+            // Hitung total harga per item (Harga Satuan * Quantity)
+            const itemTotal = item.price * item.qty;
+
+            return {
+              menuId: item.sizeData.menuId,
+              sizeId: item.sizeData.id,
+              quantity: item.qty,
+              price: item.price,      // Pastikan ini angka
+              total: itemTotal        // PENTING: Field ini wajib diisi
+            };
+          })
+        }
+      },
+      include: { items: true }
     });
 
-    console.log('Saved sale with date:', sale.date);
+    // ... (lanjutkan kode update stok dan transaksi keuangan) ...
 
-    // Update stock
-    await db.size.update({
-      where: { id: sizeId },
-      data: {
-        stock: size.stock - quantity
-      }
-    });
-
-    // Create income transaction with UTC date and link to sale
-    const transaction = await db.transaction.create({
-      data: {
-        type: 'INCOME',
-        amount: total,
-        description: `Penjualan ${size.menu.name} - ${size.size} (${quantity}x)`,
-        date: utcNow,  // Store as UTC
-        sale: {
-          connect: {
-            id: sale.id
+    // 3. Update Stok (Berdasarkan itemsToProcess)
+    for (const item of itemsToProcess) {
+      await db.size.update({
+        where: { id: item.sizeData.id },
+        data: {
+          stock: {
+            decrement: item.qty
           }
         }
+      });
+    }
+
+    // 4. Catat Transaksi Keuangan (Income)
+    // Kita buat 1 record income untuk seluruh pembelian
+    const itemsDescription = items.map(i => {
+      const sizeName = itemsToProcess.find(x => x.sizeData.id === i.sizeId)?.sizeData.size;
+      return `${i.menuName} (${sizeName}) x${i.qty}`;
+    }).join(', ');
+
+    await db.transaction.create({
+      data: {
+        type: 'INCOME',
+        amount: totalAmount,
+        // Ganti deskripsi jadi detail item
+        description: itemsDescription, 
+        date: utcNow,
+        salesHeaderId: salesHeader.id
       }
     });
 
-    console.log('Created transaction with date:', transaction.date);
+    return NextResponse.json({ message: 'Transaksi berhasil', data: salesHeader }, { status: 201 });
 
-    // Update sale with transaction
-    const updatedSale = await db.sale.update({
-      where: { id: sale.id },
-      data: { transactionId: transaction.id }
-    });
-
-    return NextResponse.json(updatedSale, { status: 201 });
   } catch (error) {
     console.error('Error creating sale:', error);
     return NextResponse.json({ error: 'Failed to create sale' }, { status: 500 });

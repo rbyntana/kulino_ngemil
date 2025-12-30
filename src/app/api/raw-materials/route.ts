@@ -1,6 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
+// Helper untuk mencari transaksi terakhir
+const findLatestExpense = async (name: string) => {
+  // Kita cari transaksi expense yang deskripsinya mengandung nama bahan
+  return await db.transaction.findFirst({
+    where: {
+      type: 'EXPENSE',
+      description: {
+        contains: `Pembelian bahan baku: ${name}` // Sesuaikan pola dengan saat POST
+      }
+    },
+    orderBy: {
+      date: 'desc'
+    }
+  });
+};
+
 // GET all raw materials
 export async function GET() {
   try {
@@ -76,53 +92,69 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const { id, name, unitPrice, quantity, unit } = body;
 
-    const existingMaterial = await db.rawMaterial.findUnique({
+    // 1. Ambil data bahan baku lama (SEBELUM diubah)
+    const oldMaterial = await db.rawMaterial.findUnique({
       where: { id }
     });
 
-    if (!existingMaterial) {
+    if (!oldMaterial) {
       return NextResponse.json({ error: 'Raw material not found' }, { status: 404 });
     }
 
-    const newTotalPrice = unitPrice * quantity;
+    const newTotalPrice = (parseFloat(unitPrice) || 0) * (parseFloat(quantity) || 0);
 
-    // Update raw material
+    // 2. Cari dan HAPUS Transaksi Lama
+    // Kita cari berdasarkan nama LAMA (oldMaterial.name)
+    const oldTransaction = await db.transaction.findFirst({
+      where: {
+        type: 'EXPENSE',
+        description: `Pembelian bahan baku: ${oldMaterial.name}`
+      }
+    });
+
+    if (oldTransaction) {
+      await db.transaction.delete({
+        where: { id: oldTransaction.id }
+      });
+      console.log(`Menghapus riwayat lama untuk: ${oldMaterial.name}`);
+    }
+
+    // 3. Update Data Bahan Baku
     const updatedMaterial = await db.rawMaterial.update({
       where: { id },
       data: {
-        name,
+        name,          // Nama baru
         unitPrice: parseFloat(unitPrice),
         quantity: parseFloat(quantity),
-        unit,
+        unit,          // Satuan baru
         totalPrice: newTotalPrice
       }
     });
 
-    // Create new transaction for difference with UTC date
-    const priceDifference = newTotalPrice - existingMaterial.totalPrice;
-    if (priceDifference !== 0) {
-      const now = new Date();
-      const utcNow = new Date(
-        Date.UTC(
-          now.getUTCFullYear(),
-          now.getUTCMonth(),
-          now.getUTCDate(),
-          now.getUTCHours(),
-          now.getUTCMinutes(),
-          now.getUTCSeconds(),
-          now.getUTCMilliseconds()
-        )
-      );
+    // 4. Buat Transaksi BARU (Replace)
+    // Menggunakan nama BARU (name) dan data terbaru
+    const now = new Date();
+    const utcNow = new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate(),
+        now.getUTCHours(),
+        now.getUTCMinutes(),
+        now.getUTCSeconds(),
+        now.getUTCMilliseconds()
+      )
+    );
 
-      await db.transaction.create({
-        data: {
-          type: 'EXPENSE',
-          amount: priceDifference,
-          description: `Update bahan baku: ${name} (${priceDifference > 0 ? '+' : ''}${priceDifference})`,
-          date: utcNow  // Store as UTC
-        }
-      });
-    }
+    await db.transaction.create({
+      data: {
+        type: 'EXPENSE',
+        amount: newTotalPrice,
+        description: `Pembelian bahan baku: ${name}`, // Menggunakan nama baru
+        date: utcNow
+      }
+    });
+    console.log(`Membuat riwayat baru untuk: ${name}`);
 
     return NextResponse.json(updatedMaterial);
   } catch (error) {

@@ -1,19 +1,10 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
 
-// datasource db {
-//   provider = "sqlite"
-//   url      = env("DATABASE_URL")
-// }
-
-// SESUDAH (PostgreSQL - Supabase):
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -38,7 +29,7 @@ model Size {
   stock     Int
   menuId    String
   menu      Menu    @relation(fields: [menuId], references: [id], onDelete: Cascade)
-  sales     Sale[]
+  sales     Sale[]  // Tetap terhubung ke Sale (Detail Item)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -50,7 +41,7 @@ model Menu {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   sizes       Size[]
-  sales       Sale[]
+  sales       Sale[]  // Tetap terhubung ke Sale (Detail Item)
   rawMaterials MenuItem[]
 }
 
@@ -64,19 +55,48 @@ model MenuItem {
   createdAt       DateTime     @default(now())
 }
 
+// --- MODEL BARU: HEADER TRANSAKSI ---
+model SalesHeader {
+  id          String   @id @default(cuid())
+  buyerName   String
+  totalAmount Float
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+  
+  // Relasi ke Item
+  items       Sale[]   
+  
+  // Relasi ke Transaction (Nama relasi: transaksiUang)
+  transaction Transaction? @relation("transaksiUang")
+}
+
+// --- MODEL YANG DIUBAH: DETAIL ITEM ---
 model Sale {
-  id            String       @id @default(cuid())
-  menuId        String
-  sizeId        String
-  quantity      Int
-  price         Float
-  total         Float
-  date          DateTime     @default(now())
-  createdAt     DateTime     @default(now())
-  menu          Menu         @relation(fields: [menuId], references: [id], onDelete: Cascade)
-  size          Size         @relation(fields: [sizeId], references: [id], onDelete: Cascade)
-  transactionId String?      @unique
-  transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  id        String   @id @default(cuid())
+  
+  // Kita buat relasi ke Header baru ini
+  headerId  String
+  header    SalesHeader @relation(fields: [headerId], references: [id], onDelete: Cascade)
+  
+  // Data detail tetap ada
+  menuId    String
+  sizeId    String
+  quantity  Int
+  price     Float
+  total     Float // Harga satuan * quantity
+  
+  // Kolom lama yang mungkin tidak terlalu dipakai lagi tapi kita biarkan agar tidak error
+  date      DateTime @default(now()) 
+  createdAt DateTime @default(now())
+  
+  // Relasi
+  menu      Menu     @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  size      Size     @relation(fields: [sizeId], references: [id], onDelete: Cascade)
+  
+  // Kita hapus transactionId unik di sini, karena transaksi sekarang ada di Header
+  // Jika Prisma complain saat npx prisma db push karena kolom ini sudah ada di DB,
+  // kita akan biarkan kolom fisiknya ada di database tapi dihilangkan di schema (atau buat nullable).
+  // Tapi untuk schema bersih, relasi cukup lewat Header.
 }
 
 model Transaction {
@@ -86,5 +106,12 @@ model Transaction {
   description String
   date        DateTime @default(now())
   createdAt   DateTime @default(now())
-  sale        Sale?
+  
+  // Relasi BARU ke SalesHeader (Untuk transaksi cart belanja)
+  salesHeaderId String?  @unique 
+  salesHeader   SalesHeader? @relation("transaksiUang",fields: [salesHeaderId], references: [id])
+
+  // HAPUS atau KOMENTARI bagian bawah ini:
+  // saleId        String? @unique
+  // sale          Sale?    @relation(fields: [saleId], references: [id])
 }
