@@ -23,9 +23,18 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: `Size dengan ID ${item.sizeId} tidak ditemukan` }, { status: 404 });
       }
 
-      if (size.stock < item.qty) {
-        return NextResponse.json({ error: `Stok tidak cukup untuk menu ${size.menu.name} (${size.size})` }, { status: 400 });
-      }
+    if (size.stock < item.qty) {
+      return NextResponse.json(
+        {
+          error: 'STOCK_NOT_ENOUGH',
+          menuName: size.menu.name,
+          sizeName: size.size,
+          remainingStock: size.stock,
+        },
+        { status: 400 }
+      )
+    }
+
 
       itemsToProcess.push({
         sizeData: size,

@@ -111,3 +111,17 @@ model Transaction {
   salesHeaderId String?  @unique 
   salesHeader   SalesHeader? @relation("transaksiUang", fields: [salesHeaderId], references: [id])
 }
+
+model PreOrder {
+  id          String   @id @default(cuid())
+  buyerName   String
+  totalAmount Int
+  status      String // 'pending', 'ready', 'taken'
+  cart        String // Kita simpan cart sebagai String JSON
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // RELASI (Opsional, untuk memanggil data lain)
+  // salesHeader SalesHeader? <-- (Jika kamu ingin relasi, nanti diisi manual)
+}
