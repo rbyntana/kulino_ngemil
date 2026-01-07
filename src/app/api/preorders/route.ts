@@ -1,9 +1,5 @@
-import { NextResponse } from 'next/server'
-import { PrismaClient } from '@prisma/client'
-
-// INISIALISASI PRISMA LANGSUNG DI SINI
-const prisma = globalForPrisma as unknown as { prisma: PrismaClient } || { prisma: new PrismaClient() }
-const db = prisma.prisma
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
 
 // 1. GET: Ambil semua Pre-Order
 export async function GET() {
