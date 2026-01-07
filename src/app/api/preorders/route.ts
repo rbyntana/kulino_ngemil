@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { NextResponse } from 'next/server'
+import { db } from '@/lib/db'
 
 // 1. GET: Ambil semua Pre-Order
 export async function GET() {
