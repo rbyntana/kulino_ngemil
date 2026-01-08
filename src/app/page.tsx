@@ -1163,43 +1163,109 @@ const handleProcessTransaction = async () => {
               </CardHeader>
               <CardContent className="space-y-4">
                 <Label htmlFor="buyerName" className="font-semibold">Nama Pembeli <span className="text-red-500">*</span></Label>
-                <Input id="buyerName" value={buyerName} onChange={(e) => setBuyerName(e.target.value)} placeholder="Masukkan nama pembeli..." />
-                <div className="border rounded-lg overflow-hidden bg-white">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-gray-100 text-gray-700">
-                      <tr>
-                        <th className="p-3">Menu</th>
-                        <th className="p-3">Ukuran</th>
-                        <th className="p-3 text-center">Jumlah</th>
-                        <th className="p-3 text-right">Harga</th>
-                        <th className="p-3 text-right">Subtotal</th>
-                        <th className="p-3 text-center">Aksi</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cart.length === 0 ? (<tr><td colSpan="6" className="p-4 text-center text-gray-400 italic">Belum ada item yang dipilih.</td></tr>) : cart.map((item, index) => (
-                        <tr key={index} className="border-t hover:bg-gray-50">
-                          <td className="p-3 font-medium">{item.menuName}</td>
-                          <td className="p-3"><Badge variant="outline">{item.sizeName}</Badge></td>
-                          <td className="p-3 text-center font-mono">{item.qty}</td>
-                          <td className="p-3 text-right">Rp {item.price.toLocaleString('id-ID')}</td>
-                          <td className="p-3 text-right font-semibold">Rp {(item.price * item.qty).toLocaleString('id-ID')}</td>
-                          <td className="p-3 text-center"><Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => { const newCart = [...cart]; newCart.splice(index, 1); setCart(newCart); }}>X</Button></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div>
+                  <Input
+                    id="buyerName"
+                    value={buyerName}
+                    onChange={(e) => setBuyerName(e.target.value)}
+                    placeholder="Masukkan nama pembeli..."
+                  />
                 </div>
+
+                {/* TAMBAHKAN WRAPPER DIV DISINI */}
+                <div className="border rounded-lg overflow-hidden bg-white">
+                  {/* Tabel di bungkus overflow-x-auto di dalam */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-gray-100 text-gray-700">
+                        <tr>
+                          <th className="p-3 whitespace-nowrap">Menu</th>
+                          <th className="p-3 whitespace-nowrap">Ukuran</th>
+                          <th className="p-3 text-center whitespace-nowrap">Jumlah</th>
+                          <th className="p-3 text-right whitespace-nowrap">Harga</th>
+                          <th className="p-3 text-right whitespace-nowrap">Subtotal</th>
+                          <th className="p-3 text-center whitespace-nowrap">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cart.length === 0 ? (
+                          <tr>
+                            <td colSpan="7" className="p-4 text-center text-gray-400 italic">
+                              Belum ada item yang dipilih.
+                            </td>
+                          </tr>
+                        ) : (
+                          cart.map((item, index) => (
+                            <tr key={index} className="border-t hover:bg-gray-50">
+                              <td className="p-3 font-medium whitespace-nowrap">{item.menuName}</td>
+                              <td className="p-3 whitespace-nowrap"><Badge variant="outline">{item.sizeName}</Badge></td>
+                              <td className="p-3 text-center font-mono whitespace-nowrap">{item.qty}</td>
+                              <td className="p-3 text-right whitespace-nowrap">Rp {item.price.toLocaleString('id-ID')}</td>
+                              <td className="p-3 text-right font-semibold whitespace-nowrap">
+                                Rp {(item.price * item.qty).toLocaleString('id-ID')}
+                              </td>
+                              <td className="p-3 text-center whitespace-nowrap">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="text-red-500 hover:text-red-700 hover:bg-red-50" 
+                                  onClick={() => { const newCart = [...cart]; newCart.splice(index, 1); setCart(newCart); }}
+                                >
+                                  X
+                                </Button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div> {/* Penutup border rounded-lg */}
+                
+                {/* Menampilkan Total Harga Real-time */}
                 <div className="flex justify-end">
                   <div className="p-3 bg-white border rounded-md text-right min-w-[200px]">
                     <span className="text-sm text-gray-500 block">Total Bayar:</span>
-                    <div className="text-xl font-bold text-blue-600">Rp {cart.reduce((total, item) => total + (item.price * item.qty), 0).toLocaleString('id-ID')}</div>
+                    <div className="text-xl font-bold text-blue-600">
+                      Rp {cart.reduce((total, item) => total + (item.price * item.qty), 0).toLocaleString('id-ID')}
+                    </div>
                   </div>
                 </div>
+
+                {/* TOMBOL AKSI (BERUBAH BERDASARKAN MODE) */}
                 <div className="flex justify-end gap-4 pt-2">
-                  {transactionMode === 'cash' && (<Button onClick={handleProcessTransaction} disabled={cart.length === 0 || !buyerName} className="bg-blue-600 hover:bg-blue-700"><Wallet className="h-4 w-4 mr-2" /> Proses & Cetak</Button>)}
-                  {transactionMode === 'preorder' && (<Button onClick={handleSaveAsPreOrder} disabled={cart.length === 0 || !buyerName} className="bg-yellow-500 hover:bg-yellow-600"><ShoppingBag className="h-4 w-4 mr-2" /> Simpan Pre-Order</Button>)}
-                  <Button variant="outline" onClick={() => { setCart([]); setBuyerName(""); }} disabled={cart.length === 0}>Reset Form</Button>
+                  
+                  {/* JIKA MODE TUNAI */}
+                  {transactionMode === 'cash' && (
+                    <Button 
+                      onClick={handleProcessTransaction} 
+                      disabled={cart.length === 0 || !buyerName} 
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Wallet className="h-4 w-4 mr-2" />
+                      Proses & Cetak
+                    </Button>
+                  )}
+
+                  {/* JIKA MODE PRE-ORDER */}
+                  {transactionMode === 'preorder' && (
+                    <Button 
+                      onClick={handleSaveAsPreOrder} 
+                      disabled={cart.length === 0 || !buyerName} 
+                      className="bg-yellow-500 hover:bg-yellow-600"
+                    >
+                      <ShoppingBag className="h-4 w-4 mr-2" />
+                      Simpan Pre-Order
+                    </Button>
+                  )}
+                  
+                  <Button 
+                    variant="outline" 
+                    onClick={() => { setCart([]); setBuyerName(""); }} 
+                    disabled={cart.length === 0}
+                  >
+                    Reset Form
+                  </Button>
                 </div>
               </CardContent>
             </Card>
