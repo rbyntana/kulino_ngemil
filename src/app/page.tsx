@@ -1161,32 +1161,32 @@ const handleProcessTransaction = async () => {
                   <button onClick={() => setTransactionMode('preorder')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${transactionMode === 'preorder' ? 'bg-yellow-500 text-white shadow-md' : 'text-gray-500 hover:bg-gray-100'}`}>Pre-Order</button>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-6">
                 <Label htmlFor="buyerName" className="font-semibold">Nama Pembeli <span className="text-red-500">*</span></Label>
                 <Input id="buyerName" value={buyerName} onChange={(e) => setBuyerName(e.target.value)} placeholder="Masukkan nama pembeli..." />
                 <div className="border rounded-lg bg-white">
                   <div className="overflow-x-auto">
                     <div className="min-w-[600px]">
-                      <table className="w-full text-sm">
-                      <thead className="bg-gray-100">
+                      <table>
+                      <thead>
                         <tr>
                           <th className="p-3 text-center whitespace-nowrap">Menu</th>
-                          <th className="text-center whitespace-nowrap">Ukuran</th>
-                          <th className="text-center whitespace-nowrap">Jumlah</th>
-                          <th className="text-center whitespace-nowrap">Harga</th>
-                          <th className="text-center whitespace-nowrap">Subtotal</th>
-                          <th className="text-center whitespace-nowrap">Aksi</th>
+                          <th className="p-3 text-center whitespace-nowrap">Ukuran</th>
+                          <th className="p-3 text-center whitespace-nowrap">Jumlah</th>
+                          <th className="p-3 text-center whitespace-nowrap">Harga</th>
+                          <th className="p-3 text-center whitespace-nowrap">Subtotal</th>
+                          <th className="p-3 text-center whitespace-nowrap">Aksi</th>
                         </tr>
                       </thead>
                       <tbody>
                         {cart.length === 0 ? (<tr><td colSpan="6" className="py-4 text-center text-gray-400 italic">Belum ada item yang dipilih.</td></tr>) : cart.map((item, index) => (
                           <tr key={index}>
-                            <td className="text-center font-medium whitespace-nowrap">{item.menuName}</td>
-                            <td className="text-center"><Badge variant="outline">{item.sizeName}</Badge></td>
-                            <td className="text-center font-mono">{item.qty}</td>
-                            <td className="text-center">Rp {item.price.toLocaleString('id-ID')}</td>
-                            <td className="text-center">Rp {(item.price * item.qty).toLocaleString('id-ID')}</td>
-                            <td className="p-3 text-center"><Button variant="outline" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => { const newCart = [...cart]; newCart.splice(index, 1); setCart(newCart); }}>X</Button></td>
+                            <td className="p-3 text-center font-medium whitespace-nowrap">{item.menuName}</td>
+                            <td className="text-center whitespace-nowrap">{item.sizeName}</td>
+                            <td className="text-center font-mono whitespace-nowrap">{item.qty}</td>
+                            <td className="text-center whitespace-nowrap">Rp {item.price.toLocaleString('id-ID')}</td>
+                            <td className="text-center whitespace-nowrap">Rp {(item.price * item.qty).toLocaleString('id-ID')}</td>
+                            <td className="p-3 text-center whitespace-nowrap"><Button variant="outline" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => { const newCart = [...cart]; newCart.splice(index, 1); setCart(newCart); }}>X</Button></td>
                           </tr>
                         ))}
                       </tbody>
