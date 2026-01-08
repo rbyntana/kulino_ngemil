@@ -1164,31 +1164,36 @@ const handleProcessTransaction = async () => {
               <CardContent className="space-y-4">
                 <Label htmlFor="buyerName" className="font-semibold">Nama Pembeli <span className="text-red-500">*</span></Label>
                 <Input id="buyerName" value={buyerName} onChange={(e) => setBuyerName(e.target.value)} placeholder="Masukkan nama pembeli..." />
-                <div className="border rounded-lg overflow-hidden bg-white">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-gray-100 text-gray-700">
-                      <tr>
-                        <th className="p-3">Menu</th>
-                        <th className="p-3">Ukuran</th>
-                        <th className="p-3 text-center">Jumlah</th>
-                        <th className="p-3 text-right">Harga</th>
-                        <th className="p-3 text-right">Subtotal</th>
-                        <th className="p-3 text-center">Aksi</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cart.length === 0 ? (<tr><td colSpan="6" className="p-4 text-center text-gray-400 italic">Belum ada item yang dipilih.</td></tr>) : cart.map((item, index) => (
-                        <tr key={index} className="border-t hover:bg-gray-50">
-                          <td className="p-3 font-medium">{item.menuName}</td>
-                          <td className="p-3"><Badge variant="outline">{item.sizeName}</Badge></td>
-                          <td className="p-3 text-center font-mono">{item.qty}</td>
-                          <td className="p-3 text-right">Rp {item.price.toLocaleString('id-ID')}</td>
-                          <td className="p-3 text-right font-semibold">Rp {(item.price * item.qty).toLocaleString('id-ID')}</td>
-                          <td className="p-3 text-center"><Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => { const newCart = [...cart]; newCart.splice(index, 1); setCart(newCart); }}>X</Button></td>
+                <div className="border rounded-lg bg-white">
+                  <div className="overflow-x-auto">
+                    <div className="min-w-[600px]">
+                      <table className="w-full text-sm">
+                      <thead className="bg-gray-100">
+                        <tr>
+                          <th className="p-3 text-center whitespace-nowrap">Menu</th>
+                          <th className="text-center whitespace-nowrap">Ukuran</th>
+                          <th className="text-center whitespace-nowrap">Jumlah</th>
+                          <th className="text-center whitespace-nowrap">Harga</th>
+                          <th className="text-center whitespace-nowrap">Subtotal</th>
+                          <th className="text-center whitespace-nowrap">Aksi</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {cart.length === 0 ? (<tr><td colSpan="6" className="py-4 text-center text-gray-400 italic">Belum ada item yang dipilih.</td></tr>) : cart.map((item, index) => (
+                          <tr key={index}>
+                            <td className="text-center font-medium whitespace-nowrap">{item.menuName}</td>
+                            <td className="text-center"><Badge variant="outline">{item.sizeName}</Badge></td>
+                            <td className="text-center font-mono">{item.qty}</td>
+                            <td className="text-center">Rp {item.price.toLocaleString('id-ID')}</td>
+                            <td className="text-center">Rp {(item.price * item.qty).toLocaleString('id-ID')}</td>
+                            <td className="p-3 text-center"><Button variant="outline" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => { const newCart = [...cart]; newCart.splice(index, 1); setCart(newCart); }}>X</Button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  
                 </div>
                 <div className="flex justify-end">
                   <div className="p-3 bg-white border rounded-md text-right min-w-[200px]">
