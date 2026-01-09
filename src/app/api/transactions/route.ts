@@ -110,6 +110,46 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// POST /api/transactions (Tambah pemasukan / pengeluaran manual)
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { type, amount, description, date } = body
+
+    if (!type || !amount) {
+      return NextResponse.json(
+        { error: 'Type dan amount wajib diisi' },
+        { status: 400 }
+      )
+    }
+
+    if (!['INCOME', 'EXPENSE'].includes(type)) {
+      return NextResponse.json(
+        { error: 'Tipe transaksi tidak valid' },
+        { status: 400 }
+      )
+    }
+
+    const transaction = await db.transaction.create({
+      data: {
+        type,
+        amount: Number(amount),
+        description: description || '',
+        date: date ? new Date(date) : new Date(),
+        // ⚠️ salesHeaderId TIDAK DIISI → transaksi manual
+      },
+    })
+
+    return NextResponse.json(transaction)
+  } catch (error) {
+    console.error('Error creating transaction:', error)
+    return NextResponse.json(
+      { error: 'Gagal menambahkan transaksi' },
+      { status: 500 }
+    )
+  }
+}
+
 // DELETE transaction
 export async function DELETE(request: NextRequest) {
   // Gunakan Transaction agar tidak ada data 'stale' di antara proses
@@ -208,7 +248,6 @@ export async function DELETE(request: NextRequest) {
     }
   });
 }
-
 
 // PUT /api/transactions
 export async function PUT(request: NextRequest) {

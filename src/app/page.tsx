@@ -1,4 +1,5 @@
 'use client'
+import { withSubmitLock } from '@/lib/withSubmitLock'
 import { toPng } from "html-to-image"
 import ReceiptPreview from "@/components/ui/ReceiptPreview"
 import { useToast } from '@/hooks/use-toast'
@@ -124,6 +125,8 @@ const formatDate = (dateString: string) => {
 };
 
 export default function Home() {
+  const [processingOrderId, setProcessingOrderId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
   const [shouldPrint, setShouldPrint] = useState(false)
   const receiptRef = useRef<HTMLDivElement>(null)
   const [printData, setPrintData] = useState<any>(null)
@@ -256,7 +259,8 @@ export default function Home() {
     console.log("1. buyerName:", buyerName);
     console.log("2. cart:", cart);
     console.log("3. cart.length:", cart.length);
-
+    if (loading) return
+    setLoading(true)
     if (!buyerName || cart.length === 0) {
       toast({
       title: 'Gagal',
@@ -306,9 +310,10 @@ export default function Home() {
       title: 'Gagal',
       description: 'Terjadi kesalahan saat menyimpan pre-order',
     })
+    } finally {
+      setLoading(false)
     }
   }
-
   // 2. Hapus Pre-Order
   const handleDeletePreOrder = async (id: string) => {
     try {
@@ -338,6 +343,8 @@ export default function Home() {
 
   // 3. Proses Pre-Order Jadi Tunai
   const handleProcessSavedOrder = async (order: any) => {
+  if (processingOrderId) return
+  setProcessingOrderId(order.id) // ⬅️ kunci hanya order ini
     try {
       // 1. Parse cart
       const itemsToSend = Array.isArray(order.cart)
@@ -364,7 +371,6 @@ export default function Home() {
         })
         return
       }
-
       // 4. BERHASIL
       toast({
         title: 'Berhasil ✅',
@@ -377,7 +383,7 @@ export default function Home() {
 
       fetchMenus()
       fetchTransactions()
-
+      
     } catch (error) {
       console.error(error)
       toast({
@@ -385,77 +391,81 @@ export default function Home() {
         description: 'Terjadi kesalahan saat memproses transaksi',
         variant: 'destructive',
       })
+    } finally {
+    setProcessingOrderId(null) // ⬅️ buka kunci
     }
   }
 
   // 4. Process Tunai Biasa
-const handleProcessTransaction = async () => {
-  // 1. Validasi dasar
-  if (!buyerName || cart.length === 0) {
-    return toast({
-      title: 'Gagal',
-      description: 'Isi nama pembeli dan pilih menu terlebih dahulu',
-    })
-  }
-
-  const totalAmount = cart.reduce(
-    (sum, item) => sum + (item.price * item.qty),
-    0
-  )
-
-  try {
-    const response = await fetch('/api/sales', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        buyerName,
-        totalAmount,
-        items: cart
+  const handleProcessTransaction = async () => {
+    if (loading) return // ⛔ cegah double click
+    // 1. Validasi dasar
+    if (!buyerName || cart.length === 0) {
+      return toast({
+        title: 'Gagal',
+        description: 'Isi nama pembeli dan pilih menu terlebih dahulu',
       })
-    })
+    }
 
-    const result = await response.json()
+    const totalAmount = cart.reduce(
+      (sum, item) => sum + (item.price * item.qty),
+      0
+    )
+    setLoading(true)
+    try {
+      const response = await fetch('/api/sales', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          buyerName,
+          totalAmount,
+          items: cart
+        })
+      })
 
-    if (!response.ok) {
-      // 🔥 STOK KURANG DARI BACKEND
-      if (result.error === 'STOCK_NOT_ENOUGH') {
+      const result = await response.json()
+
+      if (!response.ok) {
+        // 🔥 STOK KURANG DARI BACKEND
+        if (result.error === 'STOCK_NOT_ENOUGH') {
+          toast({
+            title: 'Stok Tidak Cukup',
+            description: `Menu ${result.menuName} (${result.sizeName}) hanya tersisa ${result.remainingStock} pcs.`,
+          })
+          return
+        }
+
+        // Error lain
         toast({
-          title: 'Stok Tidak Cukup',
-          description: `Menu ${result.menuName} (${result.sizeName}) hanya tersisa ${result.remainingStock} pcs.`,
+          title: 'Gagal',
+          description: result.error || 'Transaksi gagal diproses',
+          variant: 'destructive',
         })
         return
       }
 
-      // Error lain
+      // ✅ BERHASIL
       toast({
-        title: 'Gagal',
-        description: result.error || 'Transaksi gagal diproses',
+        title: 'Berhasil',
+        description: 'Transaksi berhasil disimpan',
+      })
+
+      setCart([])
+      setBuyerName('')
+      fetchMenus()
+      fetchTransactions()
+
+    } catch (err) {
+      console.error(err)
+      toast({
+        title: 'Error',
+        description: 'Gagal terhubung ke server',
         variant: 'destructive',
       })
-      return
+    } finally {
+      setLoading(false)
     }
-
-    // ✅ BERHASIL
-    toast({
-      title: 'Berhasil',
-      description: 'Transaksi berhasil disimpan',
-    })
-
-    setCart([])
-    setBuyerName('')
-    fetchMenus()
-    fetchTransactions()
-
-  } catch (err) {
-    console.error(err)
-    toast({
-      title: 'Error',
-      description: 'Gagal terhubung ke server',
-      variant: 'destructive',
-    })
   }
-}
-
 
   // 5. Print Transaction
   const handlePrintTransaction = async (transaction: any) => {
@@ -573,21 +583,46 @@ const handleProcessTransaction = async () => {
 
   // 7. Cart Logic
   const addToCart = (menu: Menu, size: Size) => {
-    const existingItemIndex = cart.findIndex((item) => item.menuId === menu.id && item.sizeId === size.id)
+    const existingItemIndex = cart.findIndex(
+      (item) => item.menuId === menu.id && item.sizeId === size.id
+    )
+
+    let newQty = 1
+
     if (existingItemIndex > -1) {
+      // ⛔ Cegah melebihi stok (opsional tapi disarankan)
+      if (cart[existingItemIndex].qty >= size.stock) {
+        toast({
+          title: "Stok tidak mencukupi",
+          description: `${menu.name} • ${size.size}`,
+        })
+        return
+      }
+
       const updatedCart = [...cart]
       updatedCart[existingItemIndex].qty += 1
+      newQty = updatedCart[existingItemIndex].qty
       setCart(updatedCart)
     } else {
-      setCart([...cart, {
-        menuId: menu.id,
-        menuName: menu.name,
-        sizeId: size.id,
-        sizeName: size.size,
-        price: size.price,
-        qty: 1
-      }])
+      setCart([
+        ...cart,
+        {
+          menuId: menu.id,
+          menuName: menu.name,
+          sizeId: size.id,
+          sizeName: size.size,
+          price: size.price,
+          qty: 1,
+        },
+      ])
+      newQty = 1
     }
+
+    // ✅ TOAST DENGAN QTY TERKINI
+    toast({
+      title: "Menu berhasil ditambahkan",
+      description: `${menu.name} • ${size.size} • Jumlah: ${newQty}`,
+    })
   }
 
   const removeFromCart = (index: number) => {
@@ -651,7 +686,7 @@ const handleProcessTransaction = async () => {
       })
       if (response.ok) {
         toast({
-        title: 'Gagal',
+        title: 'Berhasil',
         description: 'Bahan baku berhasil diperbarui',
       })
         setEditingRawMaterial(null)
@@ -986,6 +1021,67 @@ const handleProcessTransaction = async () => {
   }
 }
 
+  // 13. tambah manual transaksi
+  const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false)
+
+  const [manualTransactionForm, setManualTransactionForm] = useState({
+    type: 'EXPENSE' as 'INCOME' | 'EXPENSE',
+    amount: '',
+    description: '',
+    date: new Date().toISOString().split('T')[0],
+  })
+
+  const handleAddManualTransaction = async () => {
+  if (loading) return // ⛔ cegah double click
+  setLoading(true)
+  if (!manualTransactionForm.amount || !manualTransactionForm.date) {
+    return toast({
+      title: 'Gagal',
+      description: 'Tanggal dan nominal wajib diisi',
+    })
+  }
+
+  try {
+    const response = await fetch('/api/transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: manualTransactionForm.type,
+        amount: Number(manualTransactionForm.amount),
+        description: manualTransactionForm.description,
+        date: manualTransactionForm.date,
+      }),
+    })
+
+    if (!response.ok) throw new Error('Failed')
+
+    toast({
+      title: 'Berhasil',
+      description:
+        manualTransactionForm.type === 'INCOME'
+          ? 'Pemasukan berhasil ditambahkan'
+          : 'Pengeluaran berhasil ditambahkan',
+    })
+
+    setIsAddTransactionOpen(false)
+    setManualTransactionForm({
+      type: 'EXPENSE',
+      amount: '',
+      description: '',
+      date: new Date().toISOString().split('T')[0],
+    })
+
+    fetchTransactions()
+  } catch (error) {
+    toast({
+      title: 'Gagal',
+      description: 'Gagal menambahkan transaksi',
+    })
+  }
+}
+
+
+
   // EFFECTS
   useEffect(() => {
     fetchRawMaterials()
@@ -1024,9 +1120,10 @@ const handleProcessTransaction = async () => {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4 mb-6">
+          <TabsList className="grid w-full grid-cols-5 mb-6">
             <TabsTrigger value="materials" className="flex items-center gap-2"><Package className="h-4 w-4" /><span className="hidden sm:inline">Bahan Baku</span></TabsTrigger>
             <TabsTrigger value="menu" className="flex items-center gap-2"><ShoppingCart className="h-4 w-4" /><span className="hidden sm:inline">Menu</span></TabsTrigger>
+            <TabsTrigger value="preorders" className="flex items-center gap-2"><ShoppingBag className="h-4 w-4" /><span className="hidden sm:inline">Pre-Order</span></TabsTrigger>
             <TabsTrigger value="transactions" className="flex items-center gap-2"><FileText className="h-4 w-4" /><span className="hidden sm:inline">Transaksi</span></TabsTrigger>
             <TabsTrigger value="reports" className="flex items-center gap-2"><Wallet className="h-4 w-4" /><span className="hidden sm:inline">Laporan</span></TabsTrigger>
           </TabsList>
@@ -1053,7 +1150,7 @@ const handleProcessTransaction = async () => {
                       <div><Label>Harga Satuan (Rp)</Label><Input id="unitPrice" type="number" value={rawMaterialForm.unitPrice} onChange={(e) => setRawMaterialForm({ ...rawMaterialForm, unitPrice: e.target.value })} placeholder="10000" /></div>
                       <div><Label>Jumlah/Kuantitas</Label><Input id="quantity" type="number" value={rawMaterialForm.quantity} onChange={(e) => setRawMaterialForm({ ...rawMaterialForm, quantity: e.target.value })} placeholder="10" /></div>
                     </div>
-                    <div><Label>Satuan</Label><Input id="unit" value={rawMaterialForm.unit} onChange={(e) => setRawMaterialForm({ ...rawMaterialForm, unit: e.target.value })} placeholder="kg, liter, dll" /></div>
+                    <div><Label>Satuan</Label><Input id="unit" value={rawMaterialForm.unit} onChange={(e) => setRawMaterialForm({ ...rawMaterialForm, unit: e.target.value })} placeholder="Contoh : Pcs, Buah, kg, liter dll" /></div>
                     <div className="bg-muted p-3 rounded-lg"><Label>Harga Total</Label><p className="text-2xl font-bold">Rp {((parseFloat(rawMaterialForm.unitPrice) || 0) * (parseFloat(rawMaterialForm.quantity) || 0)).toLocaleString('id-ID')}</p></div>
                     <Button onClick={editingRawMaterial ? handleUpdateRawMaterial : handleAddRawMaterial} className="w-full">{editingRawMaterial ? 'Update' : 'Simpan'}</Button>
                   </div>
@@ -1202,22 +1299,63 @@ const handleProcessTransaction = async () => {
                   </div>
                 </div>
                 <div className="flex justify-end gap-4 pt-2">
-                  {transactionMode === 'cash' && (<Button onClick={handleProcessTransaction} disabled={cart.length === 0 || !buyerName} className="bg-blue-600 hover:bg-blue-700"><Wallet className="h-4 w-4 mr-2" /> Proses & Cetak</Button>)}
-                  {transactionMode === 'preorder' && (<Button onClick={handleSaveAsPreOrder} disabled={cart.length === 0 || !buyerName} className="bg-yellow-500 hover:bg-yellow-600"><ShoppingBag className="h-4 w-4 mr-2" /> Simpan Pre-Order</Button>)}
+                  {transactionMode === 'cash' && (<Button onClick={handleProcessTransaction} disabled={loading || cart.length === 0 || !buyerName} className="bg-blue-600 hover:bg-blue-700"><Wallet className="h-4 w-4 mr-2" /> {loading ? 'Memproses…' : 'Proses & Cetak'}</Button>)}
+                  {transactionMode === 'preorder' && (<Button onClick={handleSaveAsPreOrder} disabled={loading || cart.length === 0 || !buyerName} className="bg-yellow-500 hover:bg-yellow-600"><ShoppingBag className="h-4 w-4 mr-2" /> {loading ? 'Menyimpan…' : 'Simpan Pre-Order'}</Button>)}
                   <Button variant="outline" onClick={() => { setCart([]); setBuyerName(""); }} disabled={cart.length === 0}>Reset Form</Button>
                 </div>
               </CardContent>
             </Card>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {menus.length === 0 ? (<div className="col-span-full text-center py-12 text-muted-foreground border-2 border-dashed rounded-lg">Belum ada menu. Klik "Tambah Menu" untuk memulai.</div>) : menus.map((menu) => (
+                <Card key={menu.id} className="overflow-hidden">
+                  <div className="relative h-48 bg-muted">
+                    {menu.image ? (<img src={menu.image} alt={menu.name} className="w-full h-full object-cover" />) : (<div className="w-full h-full flex items-center justify-center"><ImageIcon className="h-12 w-12 text-muted-foreground" /></div>)}
+                  </div>
+                  <CardHeader>
+                    <CardTitle className="line-clamp-1">{menu.name}</CardTitle>
+                    <CardDescription>{menu.sizes.length} {menu.sizes.length > 1 ? 'ukuran' : 'ukuran'} tersedia</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2 mb-4">
+                      {menu.sizes.map((size) => (
+                        <div key={size.id} className="flex justify-between items-center text-sm bg-white p-2 rounded border shadow-sm">
+                          <div className="flex items-center gap-2">
+                            Ukuran : <Badge variant="secondary">{size.size}</Badge>
+                            <span className="font-semibold text-gray-700">Harga : Rp {size.price.toLocaleString('id-ID')}</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className={`text-xs font-medium ${size.stock > 0 ? 'text-green-600' : 'text-red-600'}`}>Stok: {size.stock}</span>
+                            <Button size="sm" className="h-7 w-7 p-0 rounded-full bg-blue-600 hover:bg-blue-700" onClick={() => addToCart(menu, size)} disabled={size.stock <= 0}><Plus className="h-4 w-4" /></Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => handleEditMenu(menu)} className="flex-1"><Edit className="h-4 w-4 mr-2" /> Edit Menu</Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild><Button variant="outline" size="sm"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader><AlertDialogTitle>Hapus Menu</AlertDialogTitle><AlertDialogDescription>Apakah Anda yakin ingin menghapus menu "{menu.name}"?</AlertDialogDescription></AlertDialogHeader>
+                          <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteMenu(menu.id)}>Hapus</AlertDialogAction></AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </TabsContent>
+          
+          {/* TAB PRE-ORDER */}
+          <TabsContent value="preorders" className="space-y-6">
             {/* DAFTAR PRE-ORDER */}
             {savedPreOrders.length > 0 && (
               <div className="mt-6">
                 <div className="flex flex-col gap-1 mb-4">
-                  <h3 className="text-lg font-bold text-yellow-700 flex items-center gap-2">
-                    <ShoppingBag className="h-5 w-5" />
+                  <h3 className="text-lg font-bold flex items-center gap-2">
                     Daftar Pre-Order
                   </h3>
-
                   <p className="text-sm text-gray-500">
                     Pesanan disimpan, klik tombol hijau untuk ambil/tunai
                   </p>
@@ -1262,9 +1400,9 @@ const handleProcessTransaction = async () => {
                           <div className="flex justify-end gap-2 mt-4">                              
                             <Button
                               onClick={() => handleProcessSavedOrder(po)}
-                              disabled={po.status === 'taken'}
+                              disabled={processingOrderId === po.id || po.status === 'taken'}
                             >
-                              Proses Pre-Order
+                              {processingOrderId === po.id ? 'Memproses…' : 'Simpan Pre-Order'}
                             </Button>
                             <Button onClick={() => handleDeletePreOrder(po.id)} variant="outline" size="sm"><Trash2 className="h-4 w-4" /></Button>
                           </div>
@@ -1276,89 +1414,154 @@ const handleProcessTransaction = async () => {
                 </div>
               </div>
             )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {menus.length === 0 ? (<div className="col-span-full text-center py-12 text-muted-foreground border-2 border-dashed rounded-lg">Belum ada menu. Klik "Tambah Menu" untuk memulai.</div>) : menus.map((menu) => (
-                <Card key={menu.id} className="overflow-hidden">
-                  <div className="relative h-48 bg-muted">
-                    {menu.image ? (<img src={menu.image} alt={menu.name} className="w-full h-full object-cover" />) : (<div className="w-full h-full flex items-center justify-center"><ImageIcon className="h-12 w-12 text-muted-foreground" /></div>)}
-                  </div>
-                  <CardHeader>
-                    <CardTitle className="line-clamp-1">{menu.name}</CardTitle>
-                    <CardDescription>{menu.sizes.length} {menu.sizes.length > 1 ? 'ukuran' : 'ukuran'} tersedia</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2 mb-4">
-                      {menu.sizes.map((size) => (
-                        <div key={size.id} className="flex justify-between items-center text-sm bg-white p-2 rounded border shadow-sm">
-                          <div className="flex items-center gap-2">
-                            Ukuran : <Badge variant="secondary">{size.size}</Badge>
-                            <span className="font-semibold text-gray-700">Harga : Rp {size.price.toLocaleString('id-ID')}</span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className={`text-xs font-medium ${size.stock > 0 ? 'text-green-600' : 'text-red-600'}`}>Stok: {size.stock}</span>
-                            <Button size="sm" className="h-7 w-7 p-0 rounded-full bg-blue-600 hover:bg-blue-700" onClick={() => addToCart(menu, size)} disabled={size.stock <= 0}><Plus className="h-4 w-4" /></Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handleEditMenu(menu)} className="flex-1"><Edit className="h-4 w-4 mr-2" /> Edit Menu</Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild><Button variant="outline" size="sm"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader><AlertDialogTitle>Hapus Menu</AlertDialogTitle><AlertDialogDescription>Apakah Anda yakin ingin menghapus menu "{menu.name}"?</AlertDialogDescription></AlertDialogHeader>
-                          <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteMenu(menu.id)}>Hapus</AlertDialogAction></AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
           </TabsContent>
-
+          
           {/* TAB TRANSAKSI */}
           <TabsContent value="transactions" className="space-y-6">
-            <div><h2 className="text-2xl font-bold mb-2">Riwayat Transaksi</h2><p className="text-muted-foreground">Lihat semua transaksi pemasukan dan pengeluaran</p></div>
+            <div className="flex justify-between items-center">
+              <div><h2 className="text-2xl font-bold mb-2">Riwayat Transaksi</h2><p className="text-muted-foreground">Lihat semua transaksi pemasukan dan pengeluaran</p></div>
+          <Dialog open={isAddTransactionOpen} onOpenChange={setIsAddTransactionOpen}>
+              <DialogTrigger asChild>
+                <Button onClick={() => setIsAddTransactionOpen(true)} className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Tambah Transaksi
+                </Button>
+              </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Tambah Transaksi</DialogTitle>
+                <DialogDescription>
+                  Catat pemasukan atau pengeluaran manual
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                {/* Tipe */}
+                <div>
+                  <Label>Tipe Transaksi</Label>
+                  <Select
+                    value={manualTransactionForm.type}
+                    onValueChange={(value) =>
+                      setManualTransactionForm({
+                        ...manualTransactionForm,
+                        type: value as 'INCOME' | 'EXPENSE',
+                      })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="INCOME">Pemasukan</SelectItem>
+                      <SelectItem value="EXPENSE">Pengeluaran</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Tanggal */}
+                <div>
+                  <Label>Tanggal</Label>
+                  <Input
+                    type="date"
+                    value={manualTransactionForm.date}
+                    onChange={(e) =>
+                      setManualTransactionForm({
+                        ...manualTransactionForm,
+                        date: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+
+                {/* Nominal */}
+                <div>
+                  <Label>Nominal</Label>
+                  <Input
+                    type="number"
+                    placeholder="Contoh: 50000"
+                    value={manualTransactionForm.amount}
+                    onChange={(e) =>
+                      setManualTransactionForm({
+                        ...manualTransactionForm,
+                        amount: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+
+                {/* Deskripsi */}
+                <div>
+                  <Label>Deskripsi (Opsional)</Label>
+                  <Input
+                    placeholder="Contoh: Beli gas"
+                    value={manualTransactionForm.description}
+                    onChange={(e) =>
+                      setManualTransactionForm({
+                        ...manualTransactionForm,
+                        description: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+
+                <Button onClick={handleAddManualTransaction} disabled={loading} className="w-full">
+                  {loading ? 'Memuat…' : 'Simpan Transaksi'}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+            </div>
+            
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Total Pemasukan</CardTitle><TrendingUp className="h-4 w-4 text-green-600" /></CardHeader><CardContent><div className="text-2xl font-bold text-green-600">Rp {totalIncome.toLocaleString('id-ID')}</div></CardContent></Card>
               <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Total Pengeluaran</CardTitle><TrendingDown className="h-4 w-4 text-red-600" /></CardHeader><CardContent><div className="text-2xl font-bold text-red-600">Rp {totalExpense.toLocaleString('id-ID')}</div></CardContent></Card>
               <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Item Terjual</CardTitle><ShoppingCart className="h-4 w-4 text-blue-600" /></CardHeader><CardContent><div className="text-2xl font-bold">{totalSales} item</div></CardContent></Card>
             </div>
             <div className="border rounded-lg overflow-hidden">
-              <div className="p-4 border-b"><CardTitle>Riwayat Transaksi</CardTitle></div>
+              <div className="p-4 border-b"><CardTitle>Riwayat Transaksi</CardTitle>
+              </div>
               <div className="overflow-x-auto">
                 <div className="min-w-[650px]">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="whitespace-nowrap">Tanggal</TableHead>
-                        <TableHead className="whitespace-nowrap">Tipe</TableHead>
-                        <TableHead className="whitespace-nowrap">Deskripsi</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Jumlah</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Aksi</TableHead>
+                        <TableHead className="text-center whitespace-nowrap">Tanggal</TableHead>
+                        <TableHead className="text-center whitespace-nowrap">Tipe</TableHead>
+                        <TableHead className="text-center whitespace-nowrap">Deskripsi</TableHead>
+                        <TableHead className="text-center whitespace-nowrap">Jumlah</TableHead>
+                        <TableHead className="text-center whitespace-nowrap">Aksi</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {transactions.length === 0 ? (<TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground whitespace-nowrap">Belum ada transaksi.</TableCell></TableRow>) : transactions.map((transaction) => (
                         <React.Fragment key={transaction.id}>
                           <TableRow className="hover:bg-muted/50">
-                            <TableCell className="whitespace-nowrap"><div className="flex items-center gap-2">{formatDate(transaction.date)}</div></TableCell>
-                            <TableCell className="whitespace-nowrap"><Badge variant={transaction.type === 'INCOME' ? 'default' : 'destructive'}>{transaction.type === 'INCOME' ? 'Pemasukan' : 'Pengeluaran'}</Badge></TableCell>
-                            <TableCell className="whitespace-nowrap">
-                              <div className="max-w-[300px]">
+                            <TableCell className="text-center whitespace-nowrap"><div className="items-center whitespace-nowrap">{formatDate(transaction.date)}</div></TableCell>
+                            <TableCell className="text-center whitespace-nowrap">
+                              <span
+                                className={
+                                  transaction.type === 'INCOME'
+                                    ? 'text-emerald-600 font-semibold'
+                                    : 'text-red-600 font-semibold'
+                                }
+                              >
+                                {transaction.type === 'INCOME' ? 'Pemasukan' : 'Pengeluaran'}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-center whitespace-nowrap">
+                              <div className="max-w-auto">
                                 <p className="font-medium truncate" title={transaction.description}>{transaction.description || '-'}</p>
                                 {transaction.salesHeaderId && transaction.salesHeader.buyerName && (<p className="text-xs text-muted-foreground mt-1">Pembeli: {transaction.salesHeader.buyerName}</p>)}
                               </div>
                             </TableCell>
-                            <TableCell className={`text-right font-semibold whitespace-nowrap ${transaction.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>{transaction.type === 'INCOME' ? '+' : '-'} Rp {transaction.amount.toLocaleString('id-ID')}</TableCell>
-                            <TableCell className="text-right whitespace-nowrap">
-                              <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                            <TableCell className={`text-center font-semibold whitespace-nowrap ${transaction.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>{transaction.type === 'INCOME' ? '+' : '-'} Rp {transaction.amount.toLocaleString('id-ID')}</TableCell>
+                            <TableCell className="text-center whitespace-nowrap">
+                              <div className="flex items-center whitespace-nowrap justify-center gap-2" onClick={(e) => e.stopPropagation()}>
                                 {transaction.type === 'INCOME' && transaction.salesHeaderId && (<Button variant="outline" size="sm" onClick={() => handleEditTransactionClick(transaction.salesHeaderId || transaction.id)}><Edit className="h-4 w-4" /></Button>)}
                                 {transaction.type === 'INCOME' && transaction.salesHeader && (<Button variant="outline" size="sm" onClick={() => handlePrintTransaction(transaction)}><Printer className="h-4 w-4" /></Button>)}
                                 <AlertDialog>
-                                  <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger>
+                                  <AlertDialogTrigger asChild><Button variant="outline" size="icon" className="text-red-500 hover:text-red-700"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger>
                                   <AlertDialogContent>
                                     <AlertDialogHeader><AlertDialogTitle>Hapus Transaksi</AlertDialogTitle><AlertDialogDescription>Apakah Anda yakin ingin menghapus transaksi ini?</AlertDialogDescription></AlertDialogHeader>
                                     <AlertDialogFooter>
@@ -1437,7 +1640,17 @@ const handleProcessTransaction = async () => {
                           {reportPreview.transactions.length === 0 ? (<TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Tidak ada transaksi dalam periode ini</TableCell></TableRow>) : reportPreview.transactions.map((transaction) => (
                             <TableRow key={transaction.id}>
                               <TableCell className="whitespace-nowrap">{formatDate(transaction.date)}</TableCell>
-                              <TableCell className="whitespace-nowrap"><Badge variant={transaction.type === 'INCOME' ? 'default' : 'destructive'}>{transaction.type === 'INCOME' ? 'Pemasukan' : 'Pengeluaran'}</Badge></TableCell>
+                              <TableCell className="whitespace-nowrap">
+                              <span
+                                className={
+                                  transaction.type === 'INCOME'
+                                    ? 'text-emerald-600 font-semibold'
+                                    : 'text-red-600 font-semibold'
+                                }
+                              >
+                                {transaction.type === 'INCOME' ? 'Pemasukan' : 'Pengeluaran'}
+                              </span>
+                            </TableCell>
                               <TableCell className="whitespace-nowrap max-w-[200px] truncate" title={transaction.description}>{transaction.description}</TableCell>
                               <TableCell className={`text-right font-semibold whitespace-nowrap ${transaction.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>{transaction.type === 'INCOME' ? '+' : '-'} Rp {transaction.amount.toLocaleString('id-ID')}</TableCell>
                             </TableRow>
@@ -1539,7 +1752,8 @@ const handleProcessTransaction = async () => {
           )}
         </DialogContent>
       </Dialog>
-
+      
+      {/* Receipt Preview for Printing */}
       {printData && (
         <div style={{ position: "fixed", left: "-9999px", top: 0 }}>
           <ReceiptPreview ref={receiptRef} data={printData} />
