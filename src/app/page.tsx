@@ -24,6 +24,7 @@ import { Package, Plus, Edit, Trash2, ShoppingCart, FileText, Wallet, TrendingUp
 import { NextResponse } from "next/server"
 
 
+
 function parseCart(cart: string) {
   try {
     return JSON.parse(cart)
@@ -138,6 +139,7 @@ export default function Home() {
   const [totalExpense, setTotalExpense] = useState(0)
   const [totalSales, setTotalSales] = useState(0)
   const {toast} = useToast()
+  const [transactionFilter, setTransactionFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE'>('ALL')
 
   // State Form & UI
   const [isEditTransactionOpen, setIsEditTransactionOpen] = useState(false)
@@ -652,6 +654,11 @@ export default function Home() {
       setRawMaterialLoading(false)
     }
   }
+
+  const filteredTransactions = transactions.filter((transaction) => {
+    if (transactionFilter === 'ALL') return true
+    return transaction.type === transactionFilter
+  })
 
   const handleAddRawMaterial = async () => {
     if (!rawMaterialForm.name || !rawMaterialForm.unitPrice || !rawMaterialForm.quantity || !rawMaterialForm.unit) return toast({
@@ -1280,6 +1287,7 @@ export default function Home() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="text-center whitespace-nowrap">No</TableHead>
                         <TableHead className="text-center whitespace-nowrap">Nama</TableHead>
                         <TableHead className="text-center whitespace-nowrap">Harga Satuan</TableHead>
                         <TableHead className="text-center whitespace-nowrap">Jumlah</TableHead>
@@ -1289,27 +1297,87 @@ export default function Home() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {rawMaterials.length === 0 ? (<TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground whitespace-nowrap">Belum ada bahan baku. Klik "Tambah Bahan Baku" untuk memulai.</TableCell></TableRow>) : rawMaterials.map((material) => (
-                        <TableRow key={material.id}>
-                          <TableCell className="text-center font-medium whitespace-nowrap">{material.name}</TableCell>
-                          <TableCell className="text-center whitespace-nowrap">Rp {material.unitPrice.toLocaleString('id-ID')}</TableCell>
-                          <TableCell className="text-center whitespace-nowrap">{material.quantity}</TableCell>
-                          <TableCell className="text-center whitespace-nowrap">{material.unit}</TableCell>
-                          <TableCell className="text-center font-semibold whitespace-nowrap">Rp {material.totalPrice.toLocaleString('id-ID')}</TableCell>
-                          <TableCell className="text-center whitespace-nowrap">
-                            <div className="flex items-center justify-center gap-2">
-                              <Button variant="outline" size="icon" onClick={() => handleEditRawMaterial(material)}><Edit className="h-4 w-4" /></Button>
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild><Button variant="outline" size="icon"><Trash2 className="h-4 w-4 text-destructive" /></Button></AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader><AlertDialogTitle>Hapus Bahan Baku</AlertDialogTitle><AlertDialogDescription>Apakah Anda yakin ingin menghapus bahan baku "{material.name}"?</AlertDialogDescription></AlertDialogHeader>
-                                  <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteRawMaterial(material.id)}>Hapus</AlertDialogAction></AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            </div>
+                      {rawMaterials.length === 0 ? (
+                        <TableRow>
+                          <TableCell
+                            colSpan={7}
+                            className="text-center py-8 text-muted-foreground whitespace-nowrap"
+                          >
+                            Belum ada bahan baku. Klik "Tambah Bahan Baku" untuk memulai.
                           </TableCell>
                         </TableRow>
-                      ))}
+                      ) : (
+                        rawMaterials.map((material, index) => (
+                          <TableRow key={material.id}>
+                            {/* NO */}
+                            <TableCell className="text-center font-medium whitespace-nowrap">
+                              {index + 1}
+                            </TableCell>
+
+                            {/* NAMA */}
+                            <TableCell className="text-center font-medium whitespace-nowrap">
+                              {material.name}
+                            </TableCell>
+
+                            {/* HARGA SATUAN */}
+                            <TableCell className="text-center whitespace-nowrap">
+                              Rp {material.unitPrice.toLocaleString('id-ID')}
+                            </TableCell>
+
+                            {/* JUMLAH */}
+                            <TableCell className="text-center whitespace-nowrap">
+                              {material.quantity}
+                            </TableCell>
+
+                            {/* SATUAN */}
+                            <TableCell className="text-center whitespace-nowrap">
+                              {material.unit}
+                            </TableCell>
+
+                            {/* TOTAL */}
+                            <TableCell className="text-center font-semibold whitespace-nowrap">
+                              Rp {material.totalPrice.toLocaleString('id-ID')}
+                            </TableCell>
+
+                            {/* AKSI */}
+                            <TableCell className="text-center whitespace-nowrap">
+                              <div className="flex items-center justify-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  onClick={() => handleEditRawMaterial(material)}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button variant="outline" size="icon">
+                                      <Trash2 className="h-4 w-4 text-destructive" />
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Hapus Bahan Baku</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        Apakah Anda yakin ingin menghapus bahan baku "{material.name}"?
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Batal</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() => handleDeleteRawMaterial(material.id)}
+                                      >
+                                        Hapus
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
                     </TableBody>
                   </Table>
                 </div>
@@ -1495,7 +1563,10 @@ export default function Home() {
                     const cartItems = parseCart(po.cart)
 
                     return (
-                      <Card key={po.id} className="border-l-4 border-l-yellow-500 relative">
+                      <Card
+                        key={po.id}
+                        className="border-l-4 border-l-yellow-500 flex flex-col"
+                      >
                         <CardHeader className="bg-yellow-50">
                           <div className="flex justify-between">
                             <CardTitle className="text-base">{po.buyerName}</CardTitle>
@@ -1508,35 +1579,70 @@ export default function Home() {
                           </CardDescription>
                         </CardHeader>
 
-                        <CardContent>
+                        <CardContent className="flex flex-col flex-1">
+                          {/* TABEL */}
                           <div className="border rounded bg-white">
-                            <table className="w-full">
+                            <table className="w-full table-fixed">
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="text-center w-[30%]">Nama</TableHead>
+                                  <TableHead className="text-center whitespace-nowrap">Ukuran</TableHead>
+                                  <TableHead className="text-center whitespace-nowrap">Harga</TableHead>
+                                  <TableHead className="text-center whitespace-nowrap">Jumlah</TableHead>
+                                </TableRow>
+                              </TableHeader>
                               <tbody>
                                 {cartItems.map((c, idx) => (
-                                  <tr key={idx}>
-                                    <td className="p-2">{c.menuName}</td>
-                                    <td className="p-2">Rp. {c.price.toLocaleString('id-ID')}</td>
-                                    <td className="p-2 text-right">x{c.qty}</td>
+                                  <tr key={idx} className="border-t">
+                                    <td
+                                      className="p-2 text-center max-w-[140px] truncate font-medium"
+                                      title={c.menuName}
+                                    >
+                                      {c.menuName}
+                                    </td>
+                                    <td className="p-2 text-center whitespace-nowrap">
+                                      {c.sizeName}
+                                    </td>
+                                    <td className="p-2 text-right whitespace-nowrap font-medium">
+                                      Rp. {c.price.toLocaleString('id-ID')}
+                                    </td>
+                                    <td className="p-2 text-center whitespace-nowrap">
+                                      x{c.qty}
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>
                             </table>
                           </div>
+
+                          {/* TOTAL */}
                           <div className="p-2 text-right">
-                              <span className="font-semibold">Total: </span>
-                              <span className="text-gray-700">Rp. {po.totalAmount.toLocaleString('id-ID')}</span>
-                            </div>
-                          <div className="flex justify-end gap-2 mt-4">                              
+                            <span className="font-semibold">Total: </span>
+                            <span className="font-medium">
+                              Rp. {po.totalAmount.toLocaleString('id-ID')}
+                            </span>
+                          </div>
+
+                          {/* BUTTON — SELALU DI BAWAH */}
+                          <div className="flex justify-end gap-2 mt-auto pt-4">
                             <Button
                               onClick={() => handleProcessSavedOrder(po)}
                               disabled={processingOrderId === po.id || po.status === 'taken'}
                             >
                               {processingOrderId === po.id ? 'Memproses…' : 'Simpan Pre-Order'}
                             </Button>
-                            <Button onClick={() => handleDeletePreOrder(po.id)} variant="outline" size="sm"><Trash2 className="h-4 w-4" /></Button>
+
+                            <Button
+                              onClick={() => handleDeletePreOrder(po.id)}
+                              variant="outline"
+                              size="sm"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
                         </CardContent>
                       </Card>
+
                     )
                   })}
 
@@ -1648,13 +1754,36 @@ export default function Home() {
               <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Item Terjual</CardTitle><ShoppingCart className="h-4 w-4 text-blue-600" /></CardHeader><CardContent><div className="text-2xl font-bold">{totalSales} item</div></CardContent></Card>
             </div>
             <div className="border rounded-lg overflow-hidden">
-              <div className="p-4 border-b"><CardTitle>Riwayat Transaksi</CardTitle>
+              <div className="p-4 border-b">
+                <div className="flex items-center justify-between gap-4">
+                  <CardTitle>Riwayat Transaksi</CardTitle>
+
+                  <Select
+                    value={transactionFilter}
+                    onValueChange={(value) =>
+                      setTransactionFilter(value as 'ALL' | 'INCOME' | 'EXPENSE')
+                    }
+                  >
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Filter transaksi" />
+                    </SelectTrigger>
+
+                    <SelectContent>
+                      <SelectItem value="ALL">Semua</SelectItem>
+                      <SelectItem value="INCOME">Pemasukan</SelectItem>
+                      <SelectItem value="EXPENSE">Pengeluaran</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+
+              
               <div className="overflow-x-auto">
                 <div className="min-w-[650px]">
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="text-center whitespace-nowrap">No</TableHead>
                         <TableHead className="text-center whitespace-nowrap">Tanggal</TableHead>
                         <TableHead className="text-center whitespace-nowrap">Tipe</TableHead>
                         <TableHead className="text-center whitespace-nowrap">Deskripsi</TableHead>
@@ -1663,10 +1792,35 @@ export default function Home() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {transactions.length === 0 ? (<TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground whitespace-nowrap">Belum ada transaksi.</TableCell></TableRow>) : transactions.map((transaction) => (
-                        <React.Fragment key={transaction.id}>
-                          <TableRow className="hover:bg-muted/50">
-                            <TableCell className="text-center whitespace-nowrap"><div className="items-center whitespace-nowrap">{formatDate(transaction.date)}</div></TableCell>
+                      {filteredTransactions.length === 0 ? (
+                        <TableRow>
+                          <TableCell
+                            colSpan={6}
+                            className="text-center py-8 text-muted-foreground whitespace-nowrap"
+                          >
+                            Tidak ada transaksi{" "}
+                            {transactionFilter === 'INCOME'
+                              ? 'pemasukan'
+                              : transactionFilter === 'EXPENSE'
+                              ? 'pengeluaran'
+                              : ''}
+                            .
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        filteredTransactions.map((transaction, index) => (
+                          <TableRow key={transaction.id} className="hover:bg-muted/50">
+                            {/* NO */}
+                            <TableCell className="text-center whitespace-nowrap">
+                              {index + 1}
+                            </TableCell>
+
+                            {/* TANGGAL */}
+                            <TableCell className="text-center whitespace-nowrap">
+                              {formatDate(transaction.date)}
+                            </TableCell>
+
+                            {/* TIPE */}
                             <TableCell className="text-center whitespace-nowrap">
                               <span
                                 className={
@@ -1678,33 +1832,98 @@ export default function Home() {
                                 {transaction.type === 'INCOME' ? 'Pemasukan' : 'Pengeluaran'}
                               </span>
                             </TableCell>
+
+                            {/* DESKRIPSI */}
                             <TableCell className="text-center whitespace-nowrap">
-                              <div className="max-w-auto">
-                                <p className="font-medium truncate" title={transaction.description}>{transaction.description || '-'}</p>
-                                {transaction.salesHeaderId && transaction.salesHeader.buyerName && (<p className="text-xs text-muted-foreground mt-1">Pembeli: {transaction.salesHeader.buyerName}</p>)}
+                              <div>
+                                <p
+                                  className="font-medium truncate"
+                                  title={transaction.description}
+                                >
+                                  {transaction.description || '-'}
+                                </p>
+
+                                {transaction.salesHeader?.buyerName && (
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Pembeli: {transaction.salesHeader.buyerName}
+                                  </p>
+                                )}
                               </div>
                             </TableCell>
-                            <TableCell className={`text-center font-semibold whitespace-nowrap ${transaction.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>{transaction.type === 'INCOME' ? '+' : '-'} Rp {transaction.amount.toLocaleString('id-ID')}</TableCell>
+
+                            {/* JUMLAH */}
+                            <TableCell
+                              className={`text-center font-semibold whitespace-nowrap ${
+                                transaction.type === 'INCOME'
+                                  ? 'text-green-600'
+                                  : 'text-red-600'
+                              }`}
+                            >
+                              {transaction.type === 'INCOME' ? '+' : '-'} Rp{' '}
+                              {transaction.amount.toLocaleString('id-ID')}
+                            </TableCell>
+
+                            {/* AKSI */}
                             <TableCell className="text-center whitespace-nowrap">
-                              <div className="flex items-center whitespace-nowrap justify-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                {transaction.type === 'INCOME' && transaction.salesHeaderId && (<Button variant="outline" size="sm" onClick={() => handleEditTransactionClick(transaction.salesHeaderId || transaction.id)}><Edit className="h-4 w-4" /></Button>)}
-                                {transaction.type === 'INCOME' && transaction.salesHeader && (<Button variant="outline" size="sm" onClick={() => handlePrintTransaction(transaction)}><Printer className="h-4 w-4" /></Button>)}
+                              <div className="flex justify-center gap-2">
+                                {transaction.type === 'INCOME' && transaction.salesHeaderId && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      handleEditTransactionClick(
+                                        transaction.salesHeaderId || transaction.id
+                                      )
+                                    }
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                )}
+
+                                {transaction.type === 'INCOME' && transaction.salesHeader && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handlePrintTransaction(transaction)}
+                                  >
+                                    <Printer className="h-4 w-4" />
+                                  </Button>
+                                )}
+
                                 <AlertDialog>
-                                  <AlertDialogTrigger asChild><Button variant="outline" size="icon" className="text-red-500 hover:text-red-700"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger>
+                                  <AlertDialogTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      className="text-red-500 hover:text-red-700"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </AlertDialogTrigger>
                                   <AlertDialogContent>
-                                    <AlertDialogHeader><AlertDialogTitle>Hapus Transaksi</AlertDialogTitle><AlertDialogDescription>Apakah Anda yakin ingin menghapus transaksi ini?</AlertDialogDescription></AlertDialogHeader>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Hapus Transaksi</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        Apakah Anda yakin ingin menghapus transaksi ini?
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
                                     <AlertDialogFooter>
                                       <AlertDialogCancel>Batal</AlertDialogCancel>
-                                      <AlertDialogAction onClick={() => handleDeleteTransaction(transaction.id)}>Hapus</AlertDialogAction>
+                                      <AlertDialogAction
+                                        onClick={() => handleDeleteTransaction(transaction.id)}
+                                      >
+                                        Hapus
+                                      </AlertDialogAction>
                                     </AlertDialogFooter>
                                   </AlertDialogContent>
                                 </AlertDialog>
                               </div>
                             </TableCell>
                           </TableRow>
-                        </React.Fragment>
-                      ))}
+                        ))
+                      )}
                     </TableBody>
+
                   </Table>
                 </div>
               </div>
