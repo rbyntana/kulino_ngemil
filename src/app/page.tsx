@@ -632,6 +632,27 @@ export default function Home() {
   }
 
   // 8. Material Logic
+  const [rawMaterialLoading, setRawMaterialLoading] = useState(false)
+  const handleSubmitRawMaterial = async () => {
+    if (rawMaterialLoading) return
+
+    try {
+      setRawMaterialLoading(true)
+
+      if (editingRawMaterial) {
+        await handleUpdateRawMaterial()
+      } else {
+        await handleAddRawMaterial()
+      }
+
+    setIsRawMaterialDialogOpen(false)
+    // setEditingRawMaterial(null)
+    setRawMaterialForm({ name: '', unitPrice: '', quantity: '', unit: '' })
+    } finally {
+      setRawMaterialLoading(false)
+    }
+  }
+
   const handleAddRawMaterial = async () => {
     if (!rawMaterialForm.name || !rawMaterialForm.unitPrice || !rawMaterialForm.quantity || !rawMaterialForm.unit) return toast({
         title: 'Gagal',
@@ -648,8 +669,6 @@ export default function Home() {
           title: 'Berhasil',
           description: 'Penjualan berhasil dicatat',
         })
-        setRawMaterialForm({ name: '', unitPrice: '', quantity: '', unit: '' })
-        setIsRawMaterialDialogOpen(false)
         fetchRawMaterials()
         fetchTransactions()
       } else toast({
@@ -689,9 +708,7 @@ export default function Home() {
         title: 'Berhasil',
         description: 'Bahan baku berhasil diperbarui',
       })
-        setEditingRawMaterial(null)
-        setRawMaterialForm({ name: '', unitPrice: '', quantity: '', unit: '' })
-        setIsRawMaterialDialogOpen(false)
+        
         fetchRawMaterials()
         fetchTransactions()
       } else toast({
@@ -738,7 +755,8 @@ export default function Home() {
       reader.readAsDataURL(file)
     }
   }
-
+  const [menuLoading, setMenuLoading] = useState(false)
+  const scrollYRef = useRef(0)
   const handleAddMenuSize = () => setMenuForm({ ...menuForm, sizes: [...menuForm.sizes, { size: '', price: '', stock: '' }] })
   const handleRemoveMenuSize = (index: number) => setMenuForm({ ...menuForm, sizes: menuForm.sizes.filter((_, i) => i !== index) })
   const handleMenuSizeChange = (index: number, field: string, value: string) => {
@@ -747,34 +765,69 @@ export default function Home() {
     setMenuForm({ ...menuForm, sizes: newSizes })
   }
 
+  const handleSubmitMenu = async () => {
+    if (menuLoading) return
+    setMenuLoading(true)
+    scrollYRef.current = window.scrollY
+
+    try {
+      if (editingMenu) {
+        await handleUpdateMenu()
+      } else {
+        await handleAddMenu()
+      }
+    } finally {
+      setMenuLoading(false)
+    }
+  }
+
   const handleAddMenu = async () => {
-    if (!menuForm.name || !menuForm.image || menuForm.sizes.length === 0) return toast({
+    scrollYRef.current = window.scrollY
+    if (!menuForm.name || !menuForm.image || menuForm.sizes.length === 0) {
+      return toast({
         title: 'Gagal',
         description: 'Mohon isi semua kolom dan minimal satu ukuran',
       })
-    const hasInvalidSize = menuForm.sizes.some(s => !s.size || !s.price || !s.stock)
-    if (hasInvalidSize) return toast({
+    }
+    const hasInvalidSize = menuForm.sizes.some(
+      s => !s.size || !s.price || !s.stock
+    )
+
+    if (hasInvalidSize) {
+      return toast({
         title: 'Gagal',
         description: 'Mohon isi semua detail ukuran dengan benar',
       })
+    }
+
     try {
       const response = await fetch('/api/menus', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(menuForm)
+        body: JSON.stringify(menuForm),
       })
-      if (response.ok) {
-        toast({
-          title: 'Berhasil',
-          description: 'Menu berhasil ditambahkan',
-        })
-        setMenuForm({ name: '', image: '', sizes: [{ size: '', price: '', stock: '' }] })
-        setIsMenuDialogOpen(false)
-        fetchMenus()
-      } else toast({
-        title: 'Gagal',
-        description: 'Menu gagal ditambahkan',
+
+      if (!response.ok) {
+        throw new Error('Gagal menambahkan menu')
+      }
+
+      const newMenu = await response.json() // 🔥 WAJIB
+
+      // ✅ UPDATE UI LANGSUNG
+      setMenus(prev => [newMenu, ...prev])
+
+      toast({
+        title: 'Berhasil',
+        description: 'Menu berhasil ditambahkan',
       })
+
+      setMenuForm({
+        name: '',
+        image: '',
+        sizes: [{ size: '', price: '', stock: '' }],
+      })
+      setIsMenuDialogOpen(false)
+
     } catch (error) {
       console.error(error)
       toast({
@@ -784,37 +837,55 @@ export default function Home() {
     }
   }
 
-  const handleEditMenu = (menu: Menu) => {
-    setEditingMenu(menu)
-    setMenuForm({
-      name: menu.name,
-      image: menu.image,
-      sizes: menu.sizes.map(s => ({ size: s.size, price: s.price.toString(), stock: s.stock.toString() }))
-    })
-    setIsMenuDialogOpen(true)
-  }
-
   const handleUpdateMenu = async () => {
     if (!editingMenu) return
+
     try {
       const response = await fetch('/api/menus', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: editingMenu.id, ...menuForm })
+        body: JSON.stringify({
+          id: editingMenu.id,
+          ...menuForm,
+        }),
       })
-      if (response.ok) {
-        toast({
-          title: 'Berhasil',
-          description: 'Menu berhasil diperbarui',
-        })
-        setEditingMenu(null)
-        setMenuForm({ name: '', image: '', sizes: [{ size: '', price: '', stock: '' }] })
-        setIsMenuDialogOpen(false)
-        fetchMenus()
-      } else toast({
-          title: 'Gagal',
-          description: 'Menu gagal diperbarui',
-        })
+
+      if (!response.ok) {
+        throw new Error('Gagal update menu')
+      }
+
+      // ✅ OPTIMISTIC UI UPDATE
+      setMenus(prev =>
+        prev.map(menu =>
+          menu.id === editingMenu.id
+            ? {
+                ...menu,
+                name: menuForm.name,
+                image: menuForm.image,
+                sizes: menuForm.sizes.map((s, i) => ({
+                  ...menu.sizes[i],
+                  size: s.size,
+                  price: Number(s.price),
+                  stock: Number(s.stock),
+                })),
+              }
+            : menu
+        )
+      )
+      scrollYRef.current = window.scrollY
+      toast({
+        title: 'Berhasil',
+        description: 'Menu berhasil diperbarui',
+      })
+
+      setEditingMenu(null)
+      setMenuForm({
+        name: '',
+        image: '',
+        sizes: [{ size: '', price: '', stock: '' }],
+      })
+      setIsMenuDialogOpen(false)
+
     } catch (error) {
       console.error(error)
       toast({
@@ -824,7 +895,19 @@ export default function Home() {
     }
   }
 
+  const handleEditMenu = (menu: Menu) => {
+    scrollYRef.current = window.scrollY
+    setEditingMenu(menu)
+    setMenuForm({
+      name: menu.name,
+      image: menu.image,
+      sizes: menu.sizes.map(s => ({ size: s.size, price: s.price.toString(), stock: s.stock.toString() }))
+    })
+    setIsMenuDialogOpen(true)
+  }
+
   const handleDeleteMenu = async (id: string) => {
+    scrollYRef.current = window.scrollY
     try {
       const response = await fetch(`/api/menus?id=${id}`, { method: 'DELETE' })
       if (response.ok) {
@@ -1080,9 +1163,17 @@ export default function Home() {
   }
 }
 
-
-
   // EFFECTS
+  useEffect(() => {
+    if (!isMenuDialogOpen && scrollYRef.current > 0) {
+      window.scrollTo({
+        top: scrollYRef.current,
+        behavior: 'auto',
+      })
+      scrollYRef.current = 0
+    }
+  }, [isMenuDialogOpen])
+
   useEffect(() => {
     fetchRawMaterials()
     fetchMenus()
@@ -1136,10 +1227,24 @@ export default function Home() {
                 <p className="text-muted-foreground">Kelola bahan baku untuk produk Anda</p>
               </div>
               <Dialog open={isRawMaterialDialogOpen} onOpenChange={setIsRawMaterialDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button onClick={() => { setEditingRawMaterial(null); setRawMaterialForm({ name: '', unitPrice: '', quantity: '', unit: '' }) }} className="gap-2"><Plus className="h-4 w-4" /><span className="hidden sm:inline">Tambah Bahan Baku</span></Button>
-                </DialogTrigger>
-                <DialogContent>
+                  <Button
+                      onClick={() => {
+                        setEditingRawMaterial(null)
+                        setRawMaterialForm({
+                          name: '',
+                          unitPrice: '',
+                          quantity: '',
+                          unit: '',
+                        })
+                        setIsRawMaterialDialogOpen(true)
+                      }}
+                      className="gap-2"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span className="hidden sm:inline">Tambah Bahan Baku</span>
+                  </Button>
+
+                <DialogContent  onCloseAutoFocus={(e) => {e.preventDefault()}}>
                   <DialogHeader><DialogTitle>{editingRawMaterial ? 'Edit Bahan Baku' : 'Tambah Bahan Baku'}</DialogTitle><DialogDescription>{editingRawMaterial ? 'Edit detail bahan baku' : 'Masukkan detail bahan baku baru'}</DialogDescription></DialogHeader>
                   <div className="space-y-4">
                     <div>
@@ -1152,7 +1257,19 @@ export default function Home() {
                     </div>
                     <div><Label>Satuan</Label><Input id="unit" value={rawMaterialForm.unit} onChange={(e) => setRawMaterialForm({ ...rawMaterialForm, unit: e.target.value })} placeholder="Contoh : Pcs, Buah, kg, liter dll" /></div>
                     <div className="bg-muted p-3 rounded-lg"><Label>Harga Total</Label><p className="text-2xl font-bold">Rp {((parseFloat(rawMaterialForm.unitPrice) || 0) * (parseFloat(rawMaterialForm.quantity) || 0)).toLocaleString('id-ID')}</p></div>
-                    <Button onClick={editingRawMaterial ? handleUpdateRawMaterial : handleAddRawMaterial} className="w-full">{editingRawMaterial ? 'Update' : 'Simpan'}</Button>
+                    <Button
+                      onClick={handleSubmitRawMaterial}
+                      disabled={rawMaterialLoading}
+                      className="w-full"
+                    >
+                      {rawMaterialLoading
+                        ? editingRawMaterial
+                          ? 'Mengupdate…'
+                          : 'Menyimpan…'
+                        : editingRawMaterial
+                        ? 'Update'
+                        : 'Simpan'}
+                    </Button>
                   </div>
                 </DialogContent>
               </Dialog>
@@ -1207,11 +1324,11 @@ export default function Home() {
                 <h2 className="text-2xl font-bold">Menu</h2>
                 <p className="text-muted-foreground">Kelola menu produk Anda</p>
               </div>
-              <Dialog open={isMenuDialogOpen} onOpenChange={setIsMenuDialogOpen}>
+              <Dialog open={isMenuDialogOpen} onOpenChange={(open) => {if (!open) {scrollYRef.current = window.scrollY}setIsMenuDialogOpen(open)}}>
                 <DialogTrigger asChild>
                   <Button onClick={() => { setEditingMenu(null); setMenuForm({ name: '', image: '', sizes: [{ size: '', price: '', stock: '' }] }) }} className="gap-2"><Plus className="h-4 w-4" /><span className="hidden sm:inline">Tambah Menu</span></Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" onCloseAutoFocus={(e) => {e.preventDefault()}}>
                   <DialogHeader><DialogTitle>{editingMenu ? 'Edit Menu' : 'Tambah Menu'}</DialogTitle><DialogDescription>{editingMenu ? 'Edit detail menu' : 'Masukkan detail menu baru'}</DialogDescription></DialogHeader>
                   <div className="space-y-4">
                     <div>
@@ -1240,7 +1357,19 @@ export default function Home() {
                         </div>
                       ))}
                     </div>
-                    <Button onClick={editingMenu ? handleUpdateMenu : handleAddMenu} className="w-full">{editingMenu ? 'Update' : 'Simpan'}</Button>
+                    <Button
+                      onClick={handleSubmitMenu}
+                      disabled={menuLoading}
+                      className="w-full"
+                    >
+                      {menuLoading
+                        ? editingMenu
+                          ? 'Mengupdate…'
+                          : 'Menyimpan…'
+                        : editingMenu
+                        ? 'Update'
+                        : 'Simpan'}
+                    </Button>
                   </div>
                 </DialogContent>
               </Dialog>
