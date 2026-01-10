@@ -1567,69 +1567,80 @@ export default function Home() {
                         key={po.id}
                         className="border-l-4 border-l-yellow-500 flex flex-col"
                       >
+                        {/* HEADER */}
                         <CardHeader className="bg-yellow-50">
-                          <div className="flex justify-between">
-                            <CardTitle className="text-base">{po.buyerName}</CardTitle>
-                            <Badge variant="outline" className="text-xs">
+                          <div className="flex justify-between items-start gap-2">
+                            <CardTitle className="text-base line-clamp-1">
+                              {po.buyerName}
+                            </CardTitle>
+                            <Badge variant="outline" className="text-xs whitespace-nowrap">
                               {new Date(po.createdAt).toLocaleString('id-ID')}
                             </Badge>
                           </div>
+
                           <CardDescription>
                             {cartItems.length} item
                           </CardDescription>
                         </CardHeader>
 
+                        {/* CONTENT */}
                         <CardContent className="flex flex-col flex-1">
-                          {/* TABEL */}
-                          <div className="border rounded bg-white">
-                            <table className="w-full table-fixed">
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead className="text-center w-[30%]">Nama</TableHead>
-                                  <TableHead className="text-center whitespace-nowrap">Ukuran</TableHead>
-                                  <TableHead className="text-center whitespace-nowrap">Harga</TableHead>
-                                  <TableHead className="text-center whitespace-nowrap">Jumlah</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <tbody>
-                                {cartItems.map((c, idx) => (
-                                  <tr key={idx} className="border-t">
-                                    <td
-                                      className="p-2 text-center max-w-[140px] truncate font-medium"
-                                      title={c.menuName}
-                                    >
-                                      {c.menuName}
-                                    </td>
-                                    <td className="p-2 text-center whitespace-nowrap">
-                                      {c.sizeName}
-                                    </td>
-                                    <td className="p-2 text-right whitespace-nowrap font-medium">
-                                      Rp. {c.price.toLocaleString('id-ID')}
-                                    </td>
-                                    <td className="p-2 text-center whitespace-nowrap">
-                                      x{c.qty}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                          {/* LIST ITEM (GANTI TABLE) */}
+                          <div className="space-y-2 mb-3 max-h-[260px] overflow-y-auto pr-1">
+                            {cartItems.map((c, idx) => (
+                              <div
+                                key={idx}
+                                className="
+                                  flex justify-between items-start gap-3
+                                  text-sm bg-white p-2 rounded
+                                  border shadow-sm
+                                "
+                              >
+                                {/* KIRI — INFO MENU */}
+                                <div className="flex flex-col gap-1 min-w-0">
+                                  <p
+                                    className="font-medium text-gray-800 break-words"
+                                    title={c.menuName}
+                                  >
+                                    {c.menuName}
+                                  </p>
+
+                                  <div className="flex flex-wrap items-center gap-4 text-xs">
+                                    <Badge variant="secondary">Ukuran : {c.sizeName}</Badge>
+                                    <span className="whitespace-nowrap">
+                                      Harga : Rp. {c.price.toLocaleString('id-ID')}
+                                    </span>
+                                    <span className="whitespace-nowrap">
+                                      Jumlah : {c.qty}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* KANAN — QTY */}
+                                <div className="text-right shrink-0 font-medium whitespace-nowrap">
+                                  
+                                </div>
+                              </div>
+                            ))}
                           </div>
 
                           {/* TOTAL */}
-                          <div className="p-2 text-right">
+                          <div className="text-right mb-3">
                             <span className="font-semibold">Total: </span>
                             <span className="font-medium">
-                              Rp. {po.totalAmount.toLocaleString('id-ID')}
+                              Rp {po.totalAmount.toLocaleString('id-ID')}
                             </span>
                           </div>
 
                           {/* BUTTON — SELALU DI BAWAH */}
-                          <div className="flex justify-end gap-2 mt-auto pt-4">
+                          <div className="flex justify-end gap-2 mt-auto pt-3">
                             <Button
                               onClick={() => handleProcessSavedOrder(po)}
                               disabled={processingOrderId === po.id || po.status === 'taken'}
                             >
-                              {processingOrderId === po.id ? 'Memproses…' : 'Simpan Pre-Order'}
+                              {processingOrderId === po.id
+                                ? 'Memproses…'
+                                : 'Simpan Pre-Order'}
                             </Button>
 
                             <Button
@@ -1642,10 +1653,8 @@ export default function Home() {
                           </div>
                         </CardContent>
                       </Card>
-
                     )
                   })}
-
                 </div>
               </div>
             )}
