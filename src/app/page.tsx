@@ -473,47 +473,58 @@ export default function Home() {
   }
 
   // 5. Print Transaction
+  const [loadingPrintIds, setLoadingPrintIds] = useState<Record<string, boolean>>({});
+  const [loadingEditIds, setLoadingEditIds] = useState<Record<string, boolean>>({});
+
   const handlePrintTransaction = async (transaction: any) => {
+    const salesHeaderId = transaction.salesHeader?.id;
+    if (!salesHeaderId) {
+      return toast({
+        title: 'Gagal',
+        description: 'ID sales header tidak ditemukan',
+      });
+    }
+
+    if (loadingPrintIds[salesHeaderId]) return; // cegah double click
+
+    // set loading per baris
+    setLoadingPrintIds(prev => ({ ...prev, [salesHeaderId]: true }));
+
     try {
-      const salesHeaderId = transaction.salesHeader?.id
-      if (!salesHeaderId) {
-        return toast({
-          title: 'Gagal',
-          description: 'ID sales header tidak ditemukan',
-        })
-      }
+      const res = await fetch(`/api/sales-header-detail?id=${salesHeaderId}`);
+      if (!res.ok) throw new Error("Gagal ambil detail");
 
-      const res = await fetch(`/api/sales-header-detail?id=${salesHeaderId}`)
-      if (!res.ok) throw new Error("Gagal ambil detail")
-
-      const detail = await res.json()
-
-      setPrintData(detail)
-      setIsPrintDialogOpen(true) // 🔥 buka dialog
-
+      const detail = await res.json();
+      setPrintData(detail);
+      setIsPrintDialogOpen(true); // 🔥 buka dialog
     } catch (err) {
-      console.error("PRINT ERROR:", err)
+      console.error("PRINT ERROR:", err);
       toast({
         title: 'Gagal',
         description: 'Gagal ambil detail transaksi',
-      })
+      });
+    } finally {
+      setLoadingPrintIds(prev => ({ ...prev, [salesHeaderId]: false }));
     }
-  }
+  };
+
 
   const [editingSalesHeaderId, setEditingSalesHeaderId] = useState<string | null>(null)
-  const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null)
 
   // 6. Edit Transaction
   const handleEditTransactionClick = async (salesHeaderId: string) => {
+    if (loadingEditIds[salesHeaderId]) return; // cegah double click
+
+    setLoadingEditIds(prev => ({ ...prev, [salesHeaderId]: true }));
+
     try {
-      const res = await fetch(`/api/sales-header-detail?id=${salesHeaderId}`)
-      if (!res.ok) throw new Error('Gagal mengambil data')
+      const res = await fetch(`/api/sales-header-detail?id=${salesHeaderId}`);
+      if (!res.ok) throw new Error('Gagal mengambil data');
 
-      const data = await res.json()
-      console.log('EDIT RESPONSE DATA:', data)
+      const data = await res.json();
 
-      setEditingSalesHeaderId(data.id)
-      setBuyerName(data.buyerName)
+      setEditingSalesHeaderId(data.id);
+      setBuyerName(data.buyerName);
 
       setEditCart(
         data.items.map((item: any) => ({
@@ -523,15 +534,17 @@ export default function Home() {
           sizeName: item.size.size,
           price: item.price,
           qty: item.quantity,
-          sizes: item.menu.sizes // ⬅️ PENTING UNTUK GANTI SIZE
+          sizes: item.menu.sizes // ⬅️ penting untuk ganti size
         }))
-      )
+      );
 
-      setIsEditTransactionOpen(true)
+      setIsEditTransactionOpen(true);
     } catch (err) {
-      toast({ title: 'Gagal', description: 'Gagal memuat transaksi' })
+      toast({ title: 'Gagal', description: 'Gagal memuat transaksi' });
+    } finally {
+      setLoadingEditIds(prev => ({ ...prev, [salesHeaderId]: false }));
     }
-  }
+  };
 
 
   // Update Transaction Handler
@@ -1836,13 +1849,17 @@ useEffect(() => {
                                   <Button
                                     variant="outline"
                                     size="sm"
-                                    onClick={() =>
-                                      handleEditTransactionClick(transaction.salesHeader.id)
-                                    }
+                                    onClick={() => handleEditTransactionClick(transaction.salesHeader.id)}
+                                    disabled={loadingEditIds[transaction.salesHeader.id]}
                                   >
-                                    <Edit className="h-4 w-4" />
+                                    {loadingEditIds[transaction.salesHeader.id] ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Edit className="h-4 w-4" />
+                                    )}
                                   </Button>
                                 )}
+
 
 
                                 {transaction.type === 'INCOME' && transaction.salesHeader && (
@@ -1850,10 +1867,16 @@ useEffect(() => {
                                     variant="outline"
                                     size="sm"
                                     onClick={() => handlePrintTransaction(transaction)}
+                                    disabled={loadingPrintIds[transaction.salesHeader.id]}
                                   >
-                                    <Printer className="h-4 w-4" />
+                                    {loadingPrintIds[transaction.salesHeader.id] ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Printer className="h-4 w-4" />
+                                    )}
                                   </Button>
                                 )}
+
 
                                 <AlertDialog>
                                   <AlertDialogTrigger asChild>
