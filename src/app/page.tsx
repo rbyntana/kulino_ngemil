@@ -20,7 +20,7 @@ import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
-import { Package, Plus, Edit, Trash2, ShoppingCart, FileText, Wallet, TrendingUp, TrendingDown, Download, Calendar as CalendarIcon, Image as ImageIcon, Printer, ShoppingBag } from 'lucide-react'
+import { Package,Loader2, Plus, Edit, Trash2, ShoppingCart, FileText, Wallet, TrendingUp, TrendingDown, Download, Calendar as CalendarIcon, Image as ImageIcon, Printer, ShoppingBag } from 'lucide-react'
 import { NextResponse } from "next/server"
 
 
@@ -126,6 +126,7 @@ const formatDate = (dateString: string) => {
 };
 
 export default function Home() {
+  const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false)
   const [processingOrderId, setProcessingOrderId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [shouldPrint, setShouldPrint] = useState(false)
@@ -138,6 +139,7 @@ export default function Home() {
   const [totalIncome, setTotalIncome] = useState(0)
   const [totalExpense, setTotalExpense] = useState(0)
   const [totalSales, setTotalSales] = useState(0)
+  const [isSaving, setIsSaving] = useState(false);
   const {toast} = useToast()
   const [transactionFilter, setTransactionFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE'>('ALL')
 
@@ -367,9 +369,10 @@ export default function Home() {
       // 3. ⛔ STOK TIDAK CUKUP → TOAST
       if (!response.ok) {
         const errorData = await response.json()
+        console.log('ERROR API SALES:', errorData)
         toast({
           title: 'Stok Tidak Cukup',
-          description: `Menu ${errorData.menuName} (${errorData.sizeName}) hanya tersisa ${errorData.remainingStock} pcs.`,
+          description: `Stok Menu tidak cukup untuk melakukan transaksi ini, mohon periksa kembali.`,
         })
         return
       }
@@ -473,35 +476,20 @@ export default function Home() {
   const handlePrintTransaction = async (transaction: any) => {
     try {
       const salesHeaderId = transaction.salesHeader?.id
-      if (!salesHeaderId) return toast({
-        title: 'Gagal',
-        description: 'ID sales header tidak ditemukan',
-      })
+      if (!salesHeaderId) {
+        return toast({
+          title: 'Gagal',
+          description: 'ID sales header tidak ditemukan',
+        })
+      }
 
       const res = await fetch(`/api/sales-header-detail?id=${salesHeaderId}`)
       if (!res.ok) throw new Error("Gagal ambil detail")
 
       const detail = await res.json()
+
       setPrintData(detail)
-      setTimeout(() => {
-        const doPrint = async () => {
-          downloadReceiptPNG()
-           if (!receiptRef.current) return
-           await new Promise(resolve => setTimeout(resolve, 300))
-           const dataUrl = await toPng(receiptRef.current!, {
-             cacheBust: true,
-             pixelRatio: 3,
-             backgroundColor: "white",
-           })
-          //  const win = window.open("", "_blank")
-          //  if (!win) return
-          //  win.document.write(`
-          //    <html><head><title>Cetak Struk</title><style>@page { size: 80mm auto; margin: 0 } body { margin: 0 } img { width: 100% }</style></head>
-          //    <body><img src="${dataUrl}" /><script>window.onload = () => { window.print(); setTimeout(() => window.close(), 300) }</script></body></html>
-          //  `)
-        }
-        doPrint()
-      }, 300)
+      setIsPrintDialogOpen(true) // 🔥 buka dialog
 
     } catch (err) {
       console.error("PRINT ERROR:", err)
@@ -512,74 +500,67 @@ export default function Home() {
     }
   }
 
+  const [editingSalesHeaderId, setEditingSalesHeaderId] = useState<string | null>(null)
+  const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null)
+
   // 6. Edit Transaction
-  const handleEditTransactionClick = async (transactionId: string) => {
+  const handleEditTransactionClick = async (salesHeaderId: string) => {
     try {
-      const response = await fetch(`/api/sales-header-detail?id=${transactionId}`)
-      if (!response.ok) return toast({
-        title: 'Gagal',
-        description: 'Data gagal diambil',
-      })
-      const data = await response.json()
-      setEditingTransactionData(data)
-      const formattedItems = data.items.map((item: any) => ({
-        menuId: item.menuId,
-        menuName: item.menu.name,
-        sizeId: item.sizeId,
-        sizeName: item.size.size,
-        price: item.price,
-        qty: item.quantity
-      }))
-      setEditCart(formattedItems)
+      const res = await fetch(`/api/sales-header-detail?id=${salesHeaderId}`)
+      if (!res.ok) throw new Error('Gagal mengambil data')
+
+      const data = await res.json()
+      console.log('EDIT RESPONSE DATA:', data)
+
+      setEditingSalesHeaderId(data.id)
+      setBuyerName(data.buyerName)
+
+      setEditCart(
+        data.items.map((item: any) => ({
+          menuId: item.menuId,
+          menuName: item.menu.name,
+          sizeId: item.sizeId,
+          sizeName: item.size.size,
+          price: item.price,
+          qty: item.quantity,
+          sizes: item.menu.sizes // ⬅️ PENTING UNTUK GANTI SIZE
+        }))
+      )
+
       setIsEditTransactionOpen(true)
-    } catch (error) {
-      console.error(error)
-      toast({
-        title: 'Gagal',
-        description: 'Terjadi kesalahan sistem',
-      })
+    } catch (err) {
+      toast({ title: 'Gagal', description: 'Gagal memuat transaksi' })
     }
   }
 
-  const handleUpdateTransaction = async () => {
-    if (!editingTransactionData || !editingTransactionData.id) return toast({
-      title: 'Gagal',
-      description: 'Data transaksi tidak valid',
-    })
-    const totalAmount = editCart.reduce((sum, item) => sum + (item.price * item.qty), 0)
 
+  // Update Transaction Handler
+  const handleUpdateTransaction = async () => {
+    if (isSaving) return; // mencegah double click
+    setIsSaving(true);
     try {
-      const response = await fetch('/api/transactions', {
+      const res = await fetch('/api/transactions', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: editingTransactionData.id,
-          type: 'INCOME',
-          buyerName: editingTransactionData.buyerName,
+          salesHeaderId: editingSalesHeaderId,
+          buyerName,
           items: editCart
         })
       })
-      const result = await response.json()
-      if (!response.ok) {
-        console.error("Gagal Update:", result)
-        return toast({
-          title: 'Gagal',
-          description: 'Transaksi gagal diperbarui',
-        })
-      }
-      toast({
-        title: 'Berhasil',
-        description: 'Transaksi berhasil diperbarui',
-      })
+
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error)
+
+      toast({ title: 'Berhasil', description: 'Transaksi diperbarui' })
       setIsEditTransactionOpen(false)
       fetchTransactions()
       fetchMenus()
-    } catch (error) {
-      console.error(error)
-      toast({
-        title: 'Gagal',
-        description: 'Transaksi gagal diperbarui',
-      })
+    } catch (err: any) {
+      toast({ title: 'Gagal', description: err.message })
+    }
+    finally {
+      setIsSaving(false);
     }
   }
 
@@ -903,12 +884,16 @@ export default function Home() {
   }
 
   const handleEditMenu = (menu: Menu) => {
-    scrollYRef.current = window.scrollY
     setEditingMenu(menu)
     setMenuForm({
       name: menu.name,
       image: menu.image,
-      sizes: menu.sizes.map(s => ({ size: s.size, price: s.price.toString(), stock: s.stock.toString() }))
+      sizes: menu.sizes.map(s => ({
+        id: s.id, // ✅ PENTING
+        size: s.size,
+        price: s.price.toString(),
+        stock: s.stock.toString(),
+      })),
     })
     setIsMenuDialogOpen(true)
   }
@@ -932,49 +917,6 @@ export default function Home() {
       toast({
         title: 'Gagal',
         description: 'Gagal menghapus menu',
-      })
-    }
-  }
-
-  // 10. Sell Logic (Sell Menu yang hilang)
-  const handleSell = async () => {
-    if (!selectedMenuForSell || !selectedSizeForSell) return toast({
-        title: 'Gagal',
-        description: 'Mohon pilih menu dan ukuran',
-      })
-    if (sellQuantity > selectedSizeForSell.stock) return toast({
-        title: 'Gagal',
-        description: 'Stok tidak mencukupi',
-      })
-    try {
-      const response = await fetch('/api/sales', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ menuId: selectedMenuForSell.id, sizeId: selectedSizeForSell.id, quantity: sellQuantity })
-      })
-      if (response.ok) {
-        toast({
-          title: 'Berhasil',
-          description: 'Penjualan berhasil',
-        })
-        setIsSellDialogOpen(false)
-        setSelectedMenuForSell(null)
-        setSelectedSizeForSell(null)
-        setSellQuantity(1)
-        fetchMenus()
-        fetchTransactions()
-      } else {
-        const error = await response.json()
-        toast({
-          title: 'Gagal',
-          description: error.error || 'Gagal melakukan penjualan',
-        })
-      }
-    } catch (error) {
-      console.error("Error selling:", error)
-      toast({
-        title: 'Gagal',
-        description: 'Gagal melakukan penjualan',
       })
     }
   }
@@ -1103,7 +1045,7 @@ export default function Home() {
     })
 
     const link = document.createElement("a")
-    link.download = `struk-${Date.now()}.png`
+    link.download = `struk-pembelian-${Date.now()}.png`
     link.href = dataUrl
     link.click()
   } catch (err) {
@@ -1208,6 +1150,21 @@ export default function Home() {
     }
     doPrint()
   }, [shouldPrint, printData])
+
+  useEffect(() => {
+  console.log('EDIT CART STATE:', editCart)
+}, [editCart])
+
+useEffect(() => {
+  console.log('BUYER NAME STATE:', buyerName)
+}, [buyerName])
+
+useEffect(() => {
+  if (editCart.length > 0) {
+    setIsEditTransactionOpen(true)
+  }
+}, [editCart])
+
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -1664,96 +1621,96 @@ export default function Home() {
           <TabsContent value="transactions" className="space-y-6">
             <div className="flex justify-between items-center">
               <div><h2 className="text-2xl font-bold mb-2">Riwayat Transaksi</h2><p className="text-muted-foreground">Lihat semua transaksi pemasukan dan pengeluaran</p></div>
-          <Dialog open={isAddTransactionOpen} onOpenChange={setIsAddTransactionOpen}>
-              <DialogTrigger asChild>
-                <Button onClick={() => setIsAddTransactionOpen(true)} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Tambah Transaksi
-                </Button>
-              </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Tambah Transaksi</DialogTitle>
-                <DialogDescription>
-                  Catat pemasukan atau pengeluaran manual
-                </DialogDescription>
-              </DialogHeader>
+            <Dialog open={isAddTransactionOpen} onOpenChange={setIsAddTransactionOpen}>
+                <DialogTrigger asChild>
+                  <Button onClick={() => setIsAddTransactionOpen(true)} className="gap-2">
+                    <Plus className="h-4 w-4" />
+                    Tambah Transaksi
+                  </Button>
+                </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Tambah Transaksi</DialogTitle>
+                  <DialogDescription>
+                    Catat pemasukan atau pengeluaran manual
+                  </DialogDescription>
+                </DialogHeader>
 
-              <div className="space-y-4">
-                {/* Tipe */}
-                <div>
-                  <Label>Tipe Transaksi</Label>
-                  <Select
-                    value={manualTransactionForm.type}
-                    onValueChange={(value) =>
-                      setManualTransactionForm({
-                        ...manualTransactionForm,
-                        type: value as 'INCOME' | 'EXPENSE',
-                      })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="INCOME">Pemasukan</SelectItem>
-                      <SelectItem value="EXPENSE">Pengeluaran</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="space-y-4">
+                  {/* Tipe */}
+                  <div>
+                    <Label>Tipe Transaksi</Label>
+                    <Select
+                      value={manualTransactionForm.type}
+                      onValueChange={(value) =>
+                        setManualTransactionForm({
+                          ...manualTransactionForm,
+                          type: value as 'INCOME' | 'EXPENSE',
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="INCOME">Pemasukan</SelectItem>
+                        <SelectItem value="EXPENSE">Pengeluaran</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Tanggal */}
+                  <div>
+                    <Label>Tanggal</Label>
+                    <Input
+                      type="date"
+                      value={manualTransactionForm.date}
+                      onChange={(e) =>
+                        setManualTransactionForm({
+                          ...manualTransactionForm,
+                          date: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  {/* Nominal */}
+                  <div>
+                    <Label>Nominal</Label>
+                    <Input
+                      type="number"
+                      placeholder="Contoh: 50000"
+                      value={manualTransactionForm.amount}
+                      onChange={(e) =>
+                        setManualTransactionForm({
+                          ...manualTransactionForm,
+                          amount: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  {/* Deskripsi */}
+                  <div>
+                    <Label>Deskripsi (Opsional)</Label>
+                    <Input
+                      placeholder="Contoh: Beli gas"
+                      value={manualTransactionForm.description}
+                      onChange={(e) =>
+                        setManualTransactionForm({
+                          ...manualTransactionForm,
+                          description: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <Button onClick={handleAddManualTransaction} disabled={loading} className="w-full">
+                    {loading ? (<><Loader2 className="h-4 w-4 animate-spin" /> Memuat…</>) : 'Simpan Transaksi'}
+                  </Button>
                 </div>
-
-                {/* Tanggal */}
-                <div>
-                  <Label>Tanggal</Label>
-                  <Input
-                    type="date"
-                    value={manualTransactionForm.date}
-                    onChange={(e) =>
-                      setManualTransactionForm({
-                        ...manualTransactionForm,
-                        date: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-
-                {/* Nominal */}
-                <div>
-                  <Label>Nominal</Label>
-                  <Input
-                    type="number"
-                    placeholder="Contoh: 50000"
-                    value={manualTransactionForm.amount}
-                    onChange={(e) =>
-                      setManualTransactionForm({
-                        ...manualTransactionForm,
-                        amount: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-
-                {/* Deskripsi */}
-                <div>
-                  <Label>Deskripsi (Opsional)</Label>
-                  <Input
-                    placeholder="Contoh: Beli gas"
-                    value={manualTransactionForm.description}
-                    onChange={(e) =>
-                      setManualTransactionForm({
-                        ...manualTransactionForm,
-                        description: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-
-                <Button onClick={handleAddManualTransaction} disabled={loading} className="w-full">
-                  {loading ? 'Memuat…' : 'Simpan Transaksi'}
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+              </DialogContent>
+            </Dialog>
             </div>
             
 
@@ -1875,19 +1832,18 @@ export default function Home() {
                             {/* AKSI */}
                             <TableCell className="text-center whitespace-nowrap">
                               <div className="flex justify-center gap-2">
-                                {transaction.type === 'INCOME' && transaction.salesHeaderId && (
+                                {transaction.type === 'INCOME' && transaction.salesHeader && (
                                   <Button
                                     variant="outline"
                                     size="sm"
                                     onClick={() =>
-                                      handleEditTransactionClick(
-                                        transaction.salesHeaderId || transaction.id
-                                      )
+                                      handleEditTransactionClick(transaction.salesHeader.id)
                                     }
                                   >
                                     <Edit className="h-4 w-4" />
                                   </Button>
                                 )}
+
 
                                 {transaction.type === 'INCOME' && transaction.salesHeader && (
                                   <Button
@@ -2060,56 +2016,195 @@ export default function Home() {
         {/* Content kosong karena dialog sell logic sudah tergabung di handleProcessTransaction */}
       </Dialog>
 
+      {/* Download Receipt Dialog */}
+      <AlertDialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
+        <AlertDialogContent className="max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Download Struk?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Berikut preview struk yang akan diunduh.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {/* PREVIEW STRUK */}
+          <div className="flex justify-center my-4">
+            <div className="border rounded bg-white shadow p-2 scale-90">
+              <ReceiptPreview ref={receiptRef} data={printData} />
+            </div>
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+
+            <AlertDialogAction
+              onClick={async () => {
+                await new Promise(r => setTimeout(r, 100))
+                await downloadReceiptPNG()
+                setIsPrintDialogOpen(false)
+              }}
+            >
+              Download Struk
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Edit Transaction Dialog */}
       <Dialog open={isEditTransactionOpen} onOpenChange={setIsEditTransactionOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Edit Transaksi</DialogTitle><DialogDescription>Ubah item atau jumlah pembelian. Stok akan otomatis disesuaikan.</DialogDescription></DialogHeader>
-          {editingTransactionData && (
-            <div className="space-y-4">
-              <Label>Nama Pembeli</Label>
-              <Input value={editingTransactionData.buyerName} disabled className="bg-gray-100" />
-              <div className="border rounded-lg overflow-hidden bg-white">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-gray-100 text-gray-700">
-                    <tr>
-                      <th className="p-3">Menu</th>
-                      <th className="p-3">Ukuran</th>
-                      <th className="p-3 text-center">Jumlah</th>
-                      <th className="p-3 text-right">Harga</th>
-                      <th className="p-3 text-right">Subtotal</th>
-                      <th className="p-3 text-center">Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {editCart.map((item, index) => (
-                      <tr key={index} className="border-t hover:bg-gray-50">
-                        <td className="p-3 font-medium">{item.menuName}</td>
-                        <td className="p-3"><Badge variant="outline">{item.sizeName}</Badge></td>
-                        <td className="p-3 text-center">
-                          <Input type="number" min="1" className="w-16 text-center" value={item.qty} onChange={(e) => { const newCart = [...editCart]; newCart[index].qty = parseInt(e.target.value); setEditCart(newCart); }} />
-                        </td>
-                        <td className="p-3 text-right">Rp {item.price.toLocaleString('id-ID')}</td>
-                        <td className="p-3 text-right font-semibold">Rp {(item.price * item.qty).toLocaleString('id-ID')}</td>
-                        <td className="p-3 text-center">
-                          <Button variant="ghost" size="sm" className="text-red-500" onClick={() => { const newCart = [...editCart]; newCart.splice(index, 1); setEditCart(newCart); }}><Trash2 className="h-4 w-4" /></Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="flex justify-between items-center">
-                <div className="text-lg font-bold">Total: Rp {editCart.reduce((sum, item) => sum + (item.price * item.qty), 0).toLocaleString('id-ID')}</div>
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => setIsEditTransactionOpen(false)}>Batal</Button>
-                  <Button onClick={handleUpdateTransaction} className="bg-blue-600 hover:bg-blue-700">Simpan Perubahan</Button>
-                </div>
-              </div>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Edit Transaksi</DialogTitle>
+            <DialogDescription>
+              Edit nama pembeli, ukuran, dan jumlah. Stok otomatis disesuaikan.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Nama Pembeli */}
+          <div className="space-y-1">
+            <Label>Nama Pembeli</Label>
+            <Input
+              value={buyerName}
+              onChange={(e) => setBuyerName(e.target.value)}
+            />
+          </div>
+
+          {/* Table */}
+          <div className="border rounded-lg overflow-hidden relative mt-4">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="p-3 text-left">Menu</th>
+                  <th className="p-3 text-center">Ukuran</th>
+                  <th className="p-3 text-center">Qty</th>
+                  <th className="p-3 text-right">Harga</th>
+                  <th className="p-3 text-right">Subtotal</th>
+                  <th className="p-3 text-center">Aksi</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {editCart.map((item, index) => (
+                  <tr
+                    key={index}
+                    className="border-t hover:bg-gray-50 transition"
+                  >
+                    {/* Menu */}
+                    <td className="p-3 font-medium">
+                      {item.menuName}
+                    </td>
+
+                    {/* Size */}
+                    <td className="p-3 text-center">
+                      <Select
+                        value={item.sizeId}
+                        onValueChange={(value) => {
+                          const newSize = item.sizes.find((s: any) => s.id === value)
+                          const newCart = [...editCart]
+                          newCart[index] = {
+                            ...item,
+                            sizeId: newSize.id,
+                            sizeName: newSize.size,
+                            price: newSize.price
+                          }
+                          setEditCart(newCart)
+                        }}
+                      >
+                        <SelectTrigger className="w-[95px] mx-auto">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {item.sizes.map((s: any) => (
+                            <SelectItem key={s.id} value={s.id}>
+                              {s.size}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                    </td>
+
+                    {/* Qty */}
+                    <td className="p-3 text-center">
+                      <Input
+                        type="number"
+                        min={1}
+                        value={item.qty}
+                        onChange={(e) => {
+                          const newCart = [...editCart]
+                          newCart[index].qty = Number(e.target.value)
+                          setEditCart(newCart)
+                        }}
+                        className="w-16 text-center mx-auto"
+                      />
+                    </td>
+
+                    {/* Harga */}
+                    <td className="p-3 text-right whitespace-nowrap">
+                      Rp {item.price.toLocaleString('id-ID')}
+                    </td>
+
+                    {/* Subtotal */}
+                    <td className="p-3 text-right font-semibold whitespace-nowrap">
+                      Rp {(item.price * item.qty).toLocaleString('id-ID')}
+                    </td>
+
+                    {/* Aksi */}
+                    <td className="p-3 text-center">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-500 hover:text-red-700"
+                        onClick={() => {
+                          const newCart = [...editCart]
+                          newCart.splice(index, 1)
+                          setEditCart(newCart)
+                        }}
+                      >
+                        ✕
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Footer */}
+          <div className="flex justify-between items-center mt-4">
+            <div className="text-lg font-bold">
+              Total: Rp{' '}
+              {editCart
+                .reduce((s, i) => s + i.price * i.qty, 0)
+                .toLocaleString('id-ID')}
             </div>
-          )}
+
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setIsEditTransactionOpen(false)}
+              >
+                Batal
+              </Button>
+              <Button
+                className="bg-blue-600 hover:bg-blue-700 flex items-center justify-center gap-2"
+                onClick={handleUpdateTransaction}
+                disabled={isSaving} // disable saat loading
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Menyimpan…
+                  </>
+                ) : (
+                  'Simpan Perubahan'
+                )}
+              </Button>
+
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
-      
+
       {/* Receipt Preview for Printing */}
       {printData && (
         <div style={{ position: "fixed", left: "-9999px", top: 0 }}>

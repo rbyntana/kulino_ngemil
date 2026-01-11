@@ -57,58 +57,63 @@ export async function POST(request: NextRequest) {
 // PUT update menu
 export async function PUT(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { id, name, image, sizes } = body;
+    const body = await request.json()
+    const { id, name, image, sizes } = body
 
-    // Update menu
-    const updatedMenu = await db.menu.update({
-      where: { id },
-      data: {
-        name,
-        image
-      },
-      include: {
-        sizes: true
-      }
-    });
-
-    // Handle sizes - delete existing and create new ones
-    // First get existing sizes
-    const existingSizes = await db.size.findMany({
-      where: { menuId: id }
-    });
-
-    // Delete existing sizes
-    for (const size of existingSizes) {
-      await db.size.delete({ where: { id: size.id } });
+    if (!id || !name || !sizes) {
+      return NextResponse.json(
+        { error: 'Data tidak lengkap' },
+        { status: 400 }
+      )
     }
 
-    // Create new sizes
-    for (const sizeData of sizes) {
-      await db.size.create({
-        data: {
-          menuId: id,
-          size: sizeData.size,
-          price: parseFloat(sizeData.price),
-          stock: parseInt(sizeData.stock)
+    await db.$transaction(async (tx) => {
+      // 1️⃣ Update menu
+      await tx.menu.update({
+        where: { id },
+        data: { name, image },
+      })
+
+      // 2️⃣ Update / Create sizes
+      for (const s of sizes) {
+        if (s.id) {
+          // Update size lama
+          await tx.size.update({
+            where: { id: s.id },
+            data: {
+              size: s.size,
+              price: Number(s.price),
+              stock: Number(s.stock),
+            },
+          })
+        } else {
+          // Size baru
+          await tx.size.create({
+            data: {
+              menuId: id,
+              size: s.size,
+              price: Number(s.price),
+              stock: Number(s.stock),
+            },
+          })
         }
-      });
-    }
+      }
+    })
 
-    // Fetch updated menu with sizes
     const finalMenu = await db.menu.findUnique({
       where: { id },
       include: {
-        sizes: {
-          orderBy: { size: 'asc' }
-        }
-      }
-    });
+        sizes: { orderBy: { size: 'asc' } },
+      },
+    })
 
-    return NextResponse.json(finalMenu);
+    return NextResponse.json(finalMenu)
   } catch (error) {
-    console.error('Error updating menu:', error);
-    return NextResponse.json({ error: 'Failed to update menu' }, { status: 500 });
+    console.error(error)
+    return NextResponse.json(
+      { error: 'Gagal update menu' },
+      { status: 500 }
+    )
   }
 }
 

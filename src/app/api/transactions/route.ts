@@ -72,12 +72,22 @@ export async function GET(request: NextRequest) {
     }
 
     const transactions = await db.transaction.findMany({
-      where,
-      orderBy: { date: 'desc' },
-      include : { 
-        salesHeader: true 
+    where,
+    orderBy: { date: 'desc' },
+    include: {
+      salesHeader: {
+        include: {
+          items: {
+            include: {
+              menu: true,
+              size: true
+            }
+          }
+        }
       }
+    }
     });
+
 
     // Calculate totals
     const totalIncome = transactions
@@ -251,85 +261,86 @@ export async function DELETE(request: NextRequest) {
 
 // PUT /api/transactions
 export async function PUT(request: NextRequest) {
-  return await db.$transaction(async (tx) => {
-    try {
-      const body = await request.json();
-      const { id, type, amount, description, buyerName, items } = body;
+  try {
+    const { salesHeaderId, buyerName, items } = await request.json()
 
-      if (!id) throw new Error('ID Transaksi diperlukan');
+    if (!salesHeaderId || !Array.isArray(items)) {
+      return NextResponse.json({ error: 'Data tidak valid' }, { status: 400 })
+    }
 
-      // 1. UPDATE PENJUALAN (SALES)
-      if (type === 'INCOME' && items) {
-        const oldHeader = await tx.salesHeader.findUnique({
-          where: { id },
-          include: { items: true, transaction: true }
-        });
+    await db.$transaction(async (tx) => {
+      // 1️⃣ Ambil data lama
+      const oldItems = await tx.sale.findMany({
+        where: { headerId: salesHeaderId }
+      })
 
-        if (!oldHeader) throw new Error('Transaksi penjualan tidak ditemukan');
-
-        // Validasi Stok
-        for (const item of items) {
-          const size = await tx.size.findUnique({ where: { id: item.sizeId } });
-          const oldItem = oldHeader.items.find(i => i.sizeId === item.sizeId);
-          const oldQty = oldItem ? oldItem.quantity : 0;
-          if (!size || (size.stock + oldQty) < item.qty) {
-            throw new Error(`Stok tidak cukup untuk menu (ID: ${item.sizeId})`);
-          }
-        }
-
-        // Restore Stok Lama
-        for (const oldItem of oldHeader.items) {
-          await tx.size.update({ where: { id: oldItem.sizeId }, data: { stock: { increment: oldItem.quantity } } });
-        }
-
-        // Hapus Item Lama
-        await tx.sale.deleteMany({ where: { headerId: id } });
-
-        // Insert Item Baru
-        let newTotalAmount = 0;
-        const newItemsData = [];
-
-        for (const item of items) {
-          await tx.size.update({ where: { id: item.sizeId }, data: { stock: { decrement: item.qty } } });
-          const itemTotal = item.price * item.qty;
-          newItemsData.push({
-            menuId: item.menuId, sizeId: item.sizeId, quantity: item.qty, price: item.price, total: itemTotal
-          });
-          newTotalAmount += itemTotal;
-        }
-
-        // Update Header
-        await tx.salesHeader.update({
-          where: { id },
-          data: { buyerName, totalAmount: newTotalAmount, items: { create: newItemsData } }
-        });
-
-        // Update Transaction Record
-        if (oldHeader.transaction) {
-          const newDesc = items.map(i => `${i.menuName} (${i.sizeName}) x${i.qty}`).join(', ');
-          await tx.transaction.update({
-            where: { id: oldHeader.transaction.id },
-            data: { amount: newTotalAmount, description: newDesc }
-          });
-        }
-        
-        return NextResponse.json({ message: "Sales Updated" });
-      } 
-      
-      // 2. UPDATE PENGELUARAN (EXPENSE) - Ini yang baru!
-      else if (type === 'EXPENSE') {
-        await tx.transaction.update({
-          where: { id },
-          data: { amount, description }
-        });
-        return NextResponse.json({ message: "Expense Updated" });
+      // 2️⃣ Kembalikan stok lama
+      for (const old of oldItems) {
+        await tx.size.update({
+          where: { id: old.sizeId },
+          data: { stock: { increment: old.quantity } }
+        })
       }
 
-      throw new Error('Unknown Request Type');
-    } catch (error) {
-      console.error('Error updating transaction:', error);
-      return NextResponse.json({ error: error instanceof Error ? error.message : 'Update Failed' }, { status: 500 });
-    }
-  });
-}
+      // 3️⃣ Validasi stok baru
+      for (const item of items) {
+        const size = await tx.size.findUnique({ where: { id: item.sizeId } })
+        if (!size || size.stock < item.qty) {
+          throw new Error(`Stok tidak cukup (${item.sizeName})`)
+        }
+      }
 
+      // 4️⃣ Kurangi stok baru
+      for (const item of items) {
+        await tx.size.update({
+          where: { id: item.sizeId },
+          data: { stock: { decrement: item.qty } }
+        })
+      }
+
+      // 5️⃣ Update Header
+      const totalAmount = items.reduce(
+        (s: number, i: any) => s + i.price * i.qty,
+        0
+      )
+
+      const header = await tx.salesHeader.update({
+        where: { id: salesHeaderId },
+        data: { buyerName, totalAmount },
+        include: { transaction: true }
+      })
+
+      // 6️⃣ Update Transaction (uang + deskripsi)
+      const description = items
+        .map((i: any) => `${i.menuName} (${i.sizeName}) x${i.qty}`)
+        .join(', ')
+
+      await tx.transaction.update({
+        where: { id: header.transaction!.id },
+        data: {
+          amount: totalAmount,
+          description
+        }
+      })
+
+      // 7️⃣ Replace items
+      await tx.sale.deleteMany({ where: { headerId: salesHeaderId } })
+
+      await tx.sale.createMany({
+        data: items.map((i: any) => ({
+          headerId: salesHeaderId,
+          menuId: i.menuId,
+          sizeId: i.sizeId,
+          quantity: i.qty,
+          price: i.price,
+          total: i.price * i.qty
+        }))
+      })
+    })
+
+    return NextResponse.json({ success: true })
+  } catch (err: any) {
+    console.error(err)
+    return NextResponse.json({ error: err.message }, { status: 500 })
+  }
+}
