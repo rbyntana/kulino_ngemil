@@ -1,44 +1,35 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { NextRequest, NextResponse } from 'next/server'
+import { db } from '@/lib/db'
 
-// Helper untuk mencari transaksi terakhir
-const findLatestExpense = async (name: string) => {
-  // Kita cari transaksi expense yang deskripsinya mengandung nama bahan
-  return await db.transaction.findFirst({
-    where: {
-      type: 'EXPENSE',
-      description: {
-        contains: `Pembelian bahan baku: ${name}` // Sesuaikan pola dengan saat POST
-      }
-    },
-    orderBy: {
-      date: 'desc'
-    }
-  });
-};
-
-// GET all raw materials
+/* =======================
+   GET ALL RAW MATERIALS
+======================= */
 export async function GET() {
   try {
     const rawMaterials = await db.rawMaterial.findMany({
       orderBy: { createdAt: 'desc' }
-    });
-    return NextResponse.json(rawMaterials);
+    })
+    return NextResponse.json(rawMaterials)
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to fetch raw materials' }, { status: 500 });
+    console.error(error)
+    return NextResponse.json(
+      { error: 'Failed to fetch raw materials' },
+      { status: 500 }
+    )
   }
 }
 
-// POST create raw material
+/* =======================
+   POST RAW MATERIAL
+   + CREATE EXPENSE TRANSACTION (TERHUBUNG)
+======================= */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { name, unitPrice, quantity, unit } = body;
+    const { name, unitPrice, quantity, unit } = await request.json()
 
-    const totalPrice = unitPrice * quantity;
+    const totalPrice = Number(unitPrice) * Number(quantity)
 
-    // Get current time in UTC without timezone issues
-    const now = new Date();
+    const now = new Date()
     const utcNow = new Date(
       Date.UTC(
         now.getUTCFullYear(),
@@ -49,91 +40,55 @@ export async function POST(request: NextRequest) {
         now.getUTCSeconds(),
         now.getUTCMilliseconds()
       )
-    );
+    )
 
-    console.log('=== SAVING RAW MATERIAL ===');
-    console.log('Local time:', now.toISOString());
-    console.log('UTC time:', utcNow.toISOString());
-    console.log('Name:', name);
-    console.log('Total Price:', totalPrice);
+    const result = await db.$transaction(async (tx) => {
+      // 1️⃣ Buat Raw Material
+      const rawMaterial = await tx.rawMaterial.create({
+        data: {
+          name,
+          unitPrice: Number(unitPrice),
+          quantity: Number(quantity),
+          unit,
+          totalPrice
+        }
+      })
 
-    const rawMaterial = await db.rawMaterial.create({
-      data: {
-        name,
-        unitPrice: parseFloat(unitPrice),
-        quantity: parseFloat(quantity),
-        unit,
-        totalPrice
-      }
-    });
+      // 2️⃣ Buat Transaction TERHUBUNG
+      await tx.transaction.create({
+        data: {
+          type: 'EXPENSE',
+          amount: totalPrice,
+          description: `Pembelian bahan baku: ${name}`,
+          date: utcNow,
+          rawMaterialId: rawMaterial.id // 🔥 KUNCI
+        }
+      })
 
-    // Create expense transaction with UTC date
-    const transaction = await db.transaction.create({
-      data: {
-        type: 'EXPENSE',
-        amount: totalPrice,
-        description: `Pembelian bahan baku: ${name}`,
-        date: utcNow  // Store as UTC
-      }
-    });
+      return rawMaterial
+    })
 
-    console.log('Created transaction with date:', transaction.date);
-
-    return NextResponse.json(rawMaterial, { status: 201 });
+    return NextResponse.json(result, { status: 201 })
   } catch (error) {
-    console.error('Error creating raw material:', error);
-    return NextResponse.json({ error: 'Failed to create raw material' }, { status: 500 });
+    console.error(error)
+    return NextResponse.json(
+      { error: 'Failed to create raw material' },
+      { status: 500 }
+    )
   }
 }
 
-// PUT update raw material
+/* =======================
+   PUT RAW MATERIAL
+   + UPDATE TRANSACTION (BUKAN DELETE)
+======================= */
 export async function PUT(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { id, name, unitPrice, quantity, unit } = body;
+    const { id, name, unitPrice, quantity, unit } = await request.json()
 
-    // 1. Ambil data bahan baku lama (SEBELUM diubah)
-    const oldMaterial = await db.rawMaterial.findUnique({
-      where: { id }
-    });
+    const totalPrice = Number(unitPrice) * Number(quantity)
 
-    if (!oldMaterial) {
-      return NextResponse.json({ error: 'Raw material not found' }, { status: 404 });
-    }
-
-    const newTotalPrice = (parseFloat(unitPrice) || 0) * (parseFloat(quantity) || 0);
-
-    // 2. Cari dan HAPUS Transaksi Lama
-    // Kita cari berdasarkan nama LAMA (oldMaterial.name)
-    const oldTransaction = await db.transaction.findFirst({
-      where: {
-        type: 'EXPENSE',
-        description: `Pembelian bahan baku: ${oldMaterial.name}`
-      }
-    });
-
-    if (oldTransaction) {
-      await db.transaction.delete({
-        where: { id: oldTransaction.id }
-      });
-      console.log(`Menghapus riwayat lama untuk: ${oldMaterial.name}`);
-    }
-
-    // 3. Update Data Bahan Baku
-    const updatedMaterial = await db.rawMaterial.update({
-      where: { id },
-      data: {
-        name,          // Nama baru
-        unitPrice: parseFloat(unitPrice),
-        quantity: parseFloat(quantity),
-        unit,          // Satuan baru
-        totalPrice: newTotalPrice
-      }
-    });
-
-    // 4. Buat Transaksi BARU (Replace)
-    // Menggunakan nama BARU (name) dan data terbaru
-    const now = new Date();
+    const now = new Date()
     const utcNow = new Date(
       Date.UTC(
         now.getUTCFullYear(),
@@ -144,50 +99,89 @@ export async function PUT(request: NextRequest) {
         now.getUTCSeconds(),
         now.getUTCMilliseconds()
       )
-    );
+    )
 
-    await db.transaction.create({
-      data: {
-        type: 'EXPENSE',
-        amount: newTotalPrice,
-        description: `Pembelian bahan baku: ${name}`, // Menggunakan nama baru
-        date: utcNow
+    const result = await db.$transaction(async (tx) => {
+      // 1️⃣ Pastikan bahan baku ada
+      const material = await tx.rawMaterial.findUnique({
+        where: { id }
+      })
+
+      if (!material) {
+        throw new Error('Raw material not found')
       }
-    });
-    console.log(`Membuat riwayat baru untuk: ${name}`);
 
-    return NextResponse.json(updatedMaterial);
-  } catch (error) {
-    console.error('Error updating raw material:', error);
-    return NextResponse.json({ error: 'Failed to update raw material' }, { status: 500 });
+      // 2️⃣ Update Raw Material
+      const updatedMaterial = await tx.rawMaterial.update({
+        where: { id },
+        data: {
+          name,
+          unitPrice: Number(unitPrice),
+          quantity: Number(quantity),
+          unit,
+          totalPrice
+        }
+      })
+
+      // 3️⃣ Cari Transaction TERKAIT
+      const transaction = await tx.transaction.findFirst({
+        where: {
+          rawMaterialId: id,
+          type: 'EXPENSE'
+        }
+      })
+
+      // 4️⃣ Update Transaction (JANGAN DELETE)
+      if (transaction) {
+        await tx.transaction.update({
+          where: { id: transaction.id },
+          data: {
+            amount: totalPrice,
+            description: `Pembelian bahan baku: ${name}`,
+            date: utcNow
+          }
+        })
+      }
+
+      return updatedMaterial
+    })
+
+    return NextResponse.json(result)
+  } catch (error: any) {
+    console.error(error)
+    return NextResponse.json(
+      { error: error.message || 'Failed to update raw material' },
+      { status: 500 }
+    )
   }
 }
 
-// DELETE raw material
+/* =======================
+   DELETE RAW MATERIAL
+   (TRANSACTION AUTO TERHAPUS VIA CASCADE)
+======================= */
 export async function DELETE(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
 
     if (!id) {
-      return NextResponse.json({ error: 'ID is required' }, { status: 400 });
-    }
-
-    const material = await db.rawMaterial.findUnique({
-      where: { id }
-    });
-
-    if (!material) {
-      return NextResponse.json({ error: 'Raw material not found' }, { status: 404 });
+      return NextResponse.json({ error: 'ID is required' }, { status: 400 })
     }
 
     await db.rawMaterial.delete({
       where: { id }
-    });
+    })
+    // 🔥 Transaction TERKAIT AUTO TERHAPUS (onDelete: Cascade)
 
-    return NextResponse.json({ message: 'Raw material deleted successfully' });
+    return NextResponse.json({
+      message: 'Raw material & transaction deleted successfully'
+    })
   } catch (error) {
-    console.error('Error deleting raw material:', error);
-    return NextResponse.json({ error: 'Failed to delete raw material' }, { status: 500 });
+    console.error(error)
+    return NextResponse.json(
+      { error: 'Failed to delete raw material' },
+      { status: 500 }
+    )
   }
 }

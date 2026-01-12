@@ -19,8 +19,11 @@ model RawMaterial {
   totalPrice  Float
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  menuItems   MenuItem[]
+
+  transactions Transaction[] // 🔥 INI YANG PENTING
+  menuItems    MenuItem[]
 }
+
 
 model Size {
   id        String  @id @default(cuid())
@@ -101,16 +104,25 @@ model Sale {
 
 model Transaction {
   id          String   @id @default(cuid())
-  type        String   // INCOME or EXPENSE
+  type        String   // INCOME | EXPENSE
   amount      Float
   description String
   date        DateTime @default(now())
   createdAt   DateTime @default(now())
-  
-  // Relasi BARU ke SalesHeader (Untuk transaksi cart belanja)
-  salesHeaderId String?  @unique 
+
+  // sudah ada
+  salesHeaderId String?  @unique
   salesHeader   SalesHeader? @relation("transaksiUang", fields: [salesHeaderId], references: [id])
+
+  // 🔥 BARU (untuk bahan baku)
+  rawMaterialId String?
+  rawMaterial   RawMaterial? @relation(fields: [rawMaterialId], references: [id], onDelete: Cascade)
+
+  isManual   Boolean  @default(false)
 }
+
+
+
 
 model PreOrder {
   id          String   @id @default(cuid())

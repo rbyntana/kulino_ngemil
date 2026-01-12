@@ -76,6 +76,8 @@ type Transaction = {
   description: string
   date: string
   createdAt: string
+  salesHeaderId?: string | null
+  rawMaterialId?: string | null
 }
 
 type Sale = {
@@ -495,6 +497,7 @@ export default function Home() {
       if (!res.ok) throw new Error("Gagal ambil detail");
 
       const detail = await res.json();
+      console.log("DETAIL DARI API:", detail);
       setPrintData(detail);
       setIsPrintDialogOpen(true); // 🔥 buka dialog
     } catch (err) {
@@ -655,29 +658,47 @@ export default function Home() {
   })
 
   const handleAddRawMaterial = async () => {
-    if (!rawMaterialForm.name || !rawMaterialForm.unitPrice || !rawMaterialForm.quantity || !rawMaterialForm.unit) return toast({
+    if (
+      !rawMaterialForm.name ||
+      !rawMaterialForm.unitPrice ||
+      !rawMaterialForm.quantity ||
+      !rawMaterialForm.unit
+    ) {
+      return toast({
         title: 'Gagal',
         description: 'Mohon isi semua kolom',
       })
+    }
+
     try {
       const response = await fetch('/api/raw-materials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(rawMaterialForm)
+        body: JSON.stringify(rawMaterialForm),
       })
-      if (response.ok) {
-        toast({
-          title: 'Berhasil',
-          description: 'Penjualan berhasil dicatat',
-        })
-        fetchRawMaterials()
-        fetchTransactions()
-      } else toast({
-        title: 'Gagal',
-        description: 'Gagal menambahkan bahan baku',
+
+      if (!response.ok) throw new Error()
+
+      // 1️⃣ Refresh data dulu
+      await fetchRawMaterials()
+      await fetchTransactions()
+
+      // 2️⃣ Reset form & TUTUP dialog
+      setRawMaterialForm({
+        name: '',
+        unitPrice: '',
+        quantity: '',
+        unit: '',
+      })
+      setIsRawMaterialDialogOpen(false)
+
+      // 3️⃣ BARU tampilkan toast
+      toast({
+        title: 'Berhasil',
+        description: 'Bahan baku berhasil ditambahkan',
       })
     } catch (error) {
-      console.error('Error adding raw material:', error)
+      console.error(error)
       toast({
         title: 'Gagal',
         description: 'Gagal menambahkan bahan baku',
@@ -698,24 +719,29 @@ export default function Home() {
 
   const handleUpdateRawMaterial = async () => {
     if (!editingRawMaterial) return
+
     try {
       const response = await fetch('/api/raw-materials', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: editingRawMaterial.id, ...rawMaterialForm })
+        body: JSON.stringify({
+          id: editingRawMaterial.id,
+          ...rawMaterialForm
+        })
       })
-      if (response.ok) {
-        toast({
+
+      if (!response.ok) throw new Error()
+
+      toast({
         title: 'Berhasil',
         description: 'Bahan baku berhasil diperbarui',
       })
-        
-        fetchRawMaterials()
-        fetchTransactions()
-      } else toast({
-        title: 'Gagal',
-        description: 'Bahan baku gagal diperbarui',
-      })
+
+      setIsRawMaterialDialogOpen(false)
+      setEditingRawMaterial(null)
+
+      await fetchRawMaterials()
+      await fetchTransactions()
     } catch (error) {
       console.error(error)
       toast({
@@ -727,17 +753,19 @@ export default function Home() {
 
   const handleDeleteRawMaterial = async (id: string) => {
     try {
-      const response = await fetch(`/api/raw-materials?id=${id}`, { method: 'DELETE' })
-      if (response.ok) {
-        toast({
-          title: 'Berhasil',
-          description: 'Bahan baku berhasil dihapus',
-        })
-        fetchRawMaterials()
-      } else toast({
-        title: 'Gagal',
-        description: 'Bahan baku gagal dihapus',
+      const response = await fetch(`/api/raw-materials?id=${id}`, {
+        method: 'DELETE'
       })
+
+      if (!response.ok) throw new Error()
+
+      toast({
+        title: 'Berhasil',
+        description: 'Bahan baku & riwayat transaksi berhasil dihapus',
+      })
+
+      await fetchRawMaterials()
+      await fetchTransactions() // 🔥 WAJIB
     } catch (error) {
       console.error(error)
       toast({
@@ -746,6 +774,7 @@ export default function Home() {
       })
     }
   }
+
 
   // 9. Menu Logic
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1068,7 +1097,8 @@ export default function Home() {
 
   // 13. tambah manual transaksi
   const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false)
-
+  const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null)
+  const [transactionFormMode, setTransactionFormMode] = useState<'ADD' | 'EDIT'>('ADD')
   const [manualTransactionForm, setManualTransactionForm] = useState({
     type: 'EXPENSE' as 'INCOME' | 'EXPENSE',
     amount: '',
@@ -1077,53 +1107,55 @@ export default function Home() {
   })
 
   const handleAddManualTransaction = async () => {
-  if (loading) return // ⛔ cegah double click
-  setLoading(true)
-  if (!manualTransactionForm.amount || !manualTransactionForm.date) {
-    return toast({
-      title: 'Gagal',
-      description: 'Tanggal dan nominal wajib diisi',
-    })
+    if (loading) return
+    setLoading(true)
+
+    try {
+      const isEdit = Boolean(editingTransactionId) // gunakan ini konsisten
+
+      const response = await fetch('/api/transactions', {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: isEdit ? editingTransactionId : undefined, // kirim id hanya jika edit
+          type: manualTransactionForm.type,
+          amount: Number(manualTransactionForm.amount),
+          description: manualTransactionForm.description,
+          date: manualTransactionForm.date,
+          isManual: true, // pastikan flag manual dikirim ke backend
+        }),
+      })
+
+      if (!response.ok) throw new Error('Response not OK')
+
+      toast({
+        title: 'Berhasil',
+        description: isEdit
+          ? 'Transaksi berhasil diperbarui'
+          : 'Transaksi berhasil ditambahkan',
+      })
+
+      // reset form & state
+      setIsAddTransactionOpen(false)
+      setEditingTransactionId(null)
+      setManualTransactionForm({
+        type: 'EXPENSE',
+        amount: '',
+        description: '',
+        date: new Date().toISOString().split('T')[0],
+      })
+
+      fetchTransactions()
+    } catch (err) {
+      console.error('Error simpan transaksi:', err)
+      toast({
+        title: 'Gagal',
+        description: 'Gagal menyimpan transaksi',
+      })
+    } finally {
+      setLoading(false)
+    }
   }
-
-  try {
-    const response = await fetch('/api/transactions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: manualTransactionForm.type,
-        amount: Number(manualTransactionForm.amount),
-        description: manualTransactionForm.description,
-        date: manualTransactionForm.date,
-      }),
-    })
-
-    if (!response.ok) throw new Error('Failed')
-
-    toast({
-      title: 'Berhasil',
-      description:
-        manualTransactionForm.type === 'INCOME'
-          ? 'Pemasukan berhasil ditambahkan'
-          : 'Pengeluaran berhasil ditambahkan',
-    })
-
-    setIsAddTransactionOpen(false)
-    setManualTransactionForm({
-      type: 'EXPENSE',
-      amount: '',
-      description: '',
-      date: new Date().toISOString().split('T')[0],
-    })
-
-    fetchTransactions()
-  } catch (error) {
-    toast({
-      title: 'Gagal',
-      description: 'Gagal menambahkan transaksi',
-    })
-  }
-}
 
   // EFFECTS
   useEffect(() => {
@@ -1473,38 +1505,68 @@ useEffect(() => {
               </CardContent>
             </Card>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {menus.length === 0 ? (<div className="col-span-full text-center py-12 text-muted-foreground border-2 border-dashed rounded-lg">Belum ada menu. Klik "Tambah Menu" untuk memulai.</div>) : menus.map((menu) => (
-                <Card key={menu.id} className="overflow-hidden">
-                  <div className="relative h-48 bg-muted">
-                    {menu.image ? (<img src={menu.image} alt={menu.name} className="w-full h-full object-cover" />) : (<div className="w-full h-full flex items-center justify-center"><ImageIcon className="h-12 w-12 text-muted-foreground" /></div>)}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {menus.length === 0 ? (
+                <div className="col-span-full text-center py-12 text-muted-foreground border-2 border-dashed rounded-lg">
+                  Belum ada menu. Klik "Tambah Menu" untuk memulai.
+                </div>
+              ) : menus.map((menu) => (
+                <Card key={menu.id} className="flex flex-col overflow-hidden rounded-lg shadow-sm hover:shadow-md transition-shadow">
+                  
+                  {/* IMAGE */}
+                  <div className="relative w-full h-36 sm:h-40 md:h-48 bg-muted overflow-hidden">
+                    {menu.image ? (
+                      <img src={menu.image} alt={menu.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                        <ImageIcon className="h-12 w-12 text-muted-foreground" />
+                      </div>
+                    )}
                   </div>
+
+                  {/* HEADER */}
                   <CardHeader>
                     <CardTitle className="line-clamp-1">{menu.name}</CardTitle>
                     <CardDescription>{menu.sizes.length} {menu.sizes.length > 1 ? 'ukuran' : 'ukuran'} tersedia</CardDescription>
                   </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2 mb-4">
-                      {menu.sizes.map((size) => (
-                        <div key={size.id} className="flex justify-between items-center text-sm bg-white p-2 rounded border shadow-sm">
-                          <div className="flex items-center gap-2">
-                            Ukuran : <Badge variant="secondary">{size.size}</Badge>
-                            <span className="font-semibold text-gray-700">Harga : Rp {size.price.toLocaleString('id-ID')}</span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className={`text-xs font-medium ${size.stock > 0 ? 'text-green-600' : 'text-red-600'}`}>Stok: {size.stock}</span>
-                            <Button size="sm" className="h-7 w-7 p-0 rounded-full bg-blue-600 hover:bg-blue-700" onClick={() => addToCart(menu, size)} disabled={size.stock <= 0}><Plus className="h-4 w-4" /></Button>
-                          </div>
+
+                  {/* SIZES */}
+                  <CardContent className="flex flex-col gap-2">
+                    {menu.sizes.map((size) => (
+                      <div key={size.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center text-sm bg-white p-2 rounded border shadow-sm">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+                          <span>Ukuran: <Badge variant="secondary">{size.size}</Badge></span>
+                          <span className="font-semibold text-gray-700">Harga : {size.price.toLocaleString('id-ID')}</span>
                         </div>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handleEditMenu(menu)} className="flex-1"><Edit className="h-4 w-4 mr-2" /> Edit Menu</Button>
+                        <div className="flex items-center gap-3 mt-2 sm:mt-0">
+                          <span className={`text-xs font-medium ${size.stock > 0 ? 'text-green-600' : 'text-red-600'}`}>Stok: {size.stock}</span>
+                          <Button size="sm" className="h-7 w-7 p-0 rounded-full bg-blue-600 hover:bg-blue-700" onClick={() => addToCart(menu, size)} disabled={size.stock <= 0}>
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* ACTION BUTTONS */}
+                    <div className="flex flex-col sm:flex-row gap-2 mt-2">
+                      <Button variant="outline" size="sm" onClick={() => handleEditMenu(menu)} className="flex-1">
+                        <Edit className="h-4 w-4 mr-2" /> Edit Menu
+                      </Button>
                       <AlertDialog>
-                        <AlertDialogTrigger asChild><Button variant="outline" size="sm"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="outline" size="sm">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </AlertDialogTrigger>
                         <AlertDialogContent>
-                          <AlertDialogHeader><AlertDialogTitle>Hapus Menu</AlertDialogTitle><AlertDialogDescription>Apakah Anda yakin ingin menghapus menu "{menu.name}"?</AlertDialogDescription></AlertDialogHeader>
-                          <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteMenu(menu.id)}>Hapus</AlertDialogAction></AlertDialogFooter>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Hapus Menu</AlertDialogTitle>
+                            <AlertDialogDescription>Apakah Anda yakin ingin menghapus menu "{menu.name}"?</AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Batal</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => handleDeleteMenu(menu.id)}>Hapus</AlertDialogAction>
+                          </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
                     </div>
@@ -1633,105 +1695,64 @@ useEffect(() => {
           {/* TAB TRANSAKSI */}
           <TabsContent value="transactions" className="space-y-6">
             <div className="flex justify-between items-center">
-              <div><h2 className="text-2xl font-bold mb-2">Riwayat Transaksi</h2><p className="text-muted-foreground">Lihat semua transaksi pemasukan dan pengeluaran</p></div>
-            <Dialog open={isAddTransactionOpen} onOpenChange={setIsAddTransactionOpen}>
-                <DialogTrigger asChild>
-                  <Button onClick={() => setIsAddTransactionOpen(true)} className="gap-2">
-                    <Plus className="h-4 w-4" />
-                    Tambah Transaksi
-                  </Button>
-                </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Tambah Transaksi</DialogTitle>
-                  <DialogDescription>
-                    Catat pemasukan atau pengeluaran manual
-                  </DialogDescription>
-                </DialogHeader>
+              <div>
+                <h2 className="text-2xl font-bold mb-2">Riwayat Transaksi</h2>
+                <p className="text-muted-foreground">
+                  Lihat semua transaksi pemasukan dan pengeluaran
+                </p>
+              </div>
 
-                <div className="space-y-4">
-                  {/* Tipe */}
-                  <div>
-                    <Label>Tipe Transaksi</Label>
-                    <Select
-                      value={manualTransactionForm.type}
-                      onValueChange={(value) =>
-                        setManualTransactionForm({
-                          ...manualTransactionForm,
-                          type: value as 'INCOME' | 'EXPENSE',
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="INCOME">Pemasukan</SelectItem>
-                        <SelectItem value="EXPENSE">Pengeluaran</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Tanggal */}
-                  <div>
-                    <Label>Tanggal</Label>
-                    <Input
-                      type="date"
-                      value={manualTransactionForm.date}
-                      onChange={(e) =>
-                        setManualTransactionForm({
-                          ...manualTransactionForm,
-                          date: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-
-                  {/* Nominal */}
-                  <div>
-                    <Label>Nominal</Label>
-                    <Input
-                      type="number"
-                      placeholder="Contoh: 50000"
-                      value={manualTransactionForm.amount}
-                      onChange={(e) =>
-                        setManualTransactionForm({
-                          ...manualTransactionForm,
-                          amount: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-
-                  {/* Deskripsi */}
-                  <div>
-                    <Label>Deskripsi (Opsional)</Label>
-                    <Input
-                      placeholder="Contoh: Beli gas"
-                      value={manualTransactionForm.description}
-                      onChange={(e) =>
-                        setManualTransactionForm({
-                          ...manualTransactionForm,
-                          description: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-
-                  <Button onClick={handleAddManualTransaction} disabled={loading} className="w-full">
-                    {loading ? (<><Loader2 className="h-4 w-4 animate-spin" /> Memuat…</>) : 'Simpan Transaksi'}
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
+              {/* TOMBOL TAMBAH TRANSAKSI */}
+              <Button
+                onClick={() => {
+                  setTransactionFormMode('ADD')
+                  setIsAddTransactionOpen(true)
+                }}
+                className="gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                Tambah Transaksi
+              </Button>
             </div>
-            
 
+            {/* STATISTIK */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Total Pemasukan</CardTitle><TrendingUp className="h-4 w-4 text-green-600" /></CardHeader><CardContent><div className="text-2xl font-bold text-green-600">Rp {totalIncome.toLocaleString('id-ID')}</div></CardContent></Card>
-              <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Total Pengeluaran</CardTitle><TrendingDown className="h-4 w-4 text-red-600" /></CardHeader><CardContent><div className="text-2xl font-bold text-red-600">Rp {totalExpense.toLocaleString('id-ID')}</div></CardContent></Card>
-              <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Item Terjual</CardTitle><ShoppingCart className="h-4 w-4 text-blue-600" /></CardHeader><CardContent><div className="text-2xl font-bold">{totalSales} item</div></CardContent></Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Pemasukan</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-green-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-green-600">
+                    Rp {totalIncome.toLocaleString('id-ID')}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Pengeluaran</CardTitle>
+                  <TrendingDown className="h-4 w-4 text-red-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-red-600">
+                    Rp {totalExpense.toLocaleString('id-ID')}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Item Terjual</CardTitle>
+                  <ShoppingCart className="h-4 w-4 text-blue-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{totalSales} item</div>
+                </CardContent>
+              </Card>
             </div>
+
+            {/* TABEL TRANSAKSI */}
             <div className="border rounded-lg overflow-hidden">
               <div className="p-4 border-b">
                 <div className="flex items-center justify-between gap-4">
@@ -1746,7 +1767,6 @@ useEffect(() => {
                     <SelectTrigger className="w-[180px]">
                       <SelectValue placeholder="Filter transaksi" />
                     </SelectTrigger>
-
                     <SelectContent>
                       <SelectItem value="ALL">Semua</SelectItem>
                       <SelectItem value="INCOME">Pemasukan</SelectItem>
@@ -1756,7 +1776,6 @@ useEffect(() => {
                 </div>
               </div>
 
-              
               <div className="overflow-x-auto">
                 <div className="min-w-[650px]">
                   <Table>
@@ -1770,152 +1789,221 @@ useEffect(() => {
                         <TableHead className="text-center whitespace-nowrap">Aksi</TableHead>
                       </TableRow>
                     </TableHeader>
+
                     <TableBody>
                       {filteredTransactions.length === 0 ? (
                         <TableRow>
-                          <TableCell
-                            colSpan={6}
-                            className="text-center py-8 text-muted-foreground whitespace-nowrap"
-                          >
-                            Tidak ada transaksi{" "}
-                            {transactionFilter === 'INCOME'
-                              ? 'pemasukan'
-                              : transactionFilter === 'EXPENSE'
-                              ? 'pengeluaran'
-                              : ''}
-                            .
+                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                            Tidak ada transaksi
                           </TableCell>
                         </TableRow>
                       ) : (
-                        filteredTransactions.map((transaction, index) => (
-                          <TableRow key={transaction.id} className="hover:bg-muted/50">
-                            {/* NO */}
-                            <TableCell className="text-center whitespace-nowrap">
-                              {index + 1}
-                            </TableCell>
+                        filteredTransactions.map((transaction, index) => {
+                          const canEditManual = transaction.isManual === true
+                          const isLegacy =
+                          (transaction.type === 'EXPENSE' && transaction.isManual === false && transaction.rawMaterialId === null) ||
+                          (transaction.type === 'INCOME' && transaction.isManual === false && !transaction.salesHeaderId)
 
-                            {/* TANGGAL */}
-                            <TableCell className="text-center whitespace-nowrap">
-                              {formatDate(transaction.date)}
-                            </TableCell>
+                          return (
+                            <TableRow key={transaction.id} className="hover:bg-muted/50">
+                              <TableCell className="text-center">{index + 1}</TableCell>
+                              <TableCell className="text-center">{formatDate(transaction.date)}</TableCell>
+                              <TableCell className="text-center">
+                                <span className={transaction.type === 'INCOME' ? 'text-emerald-600 font-semibold' : 'text-red-600 font-semibold'}>
+                                  {transaction.type === 'INCOME' ? 'Pemasukan' : 'Pengeluaran'}
+                                </span>
+                                {isLegacy && (
+                                  <span className="ml-2 text-xs text-muted-foreground italic">(Data lama)</span>
+                                )}
+                              </TableCell>
 
-                            {/* TIPE */}
-                            <TableCell className="text-center whitespace-nowrap">
-                              <span
-                                className={
-                                  transaction.type === 'INCOME'
-                                    ? 'text-emerald-600 font-semibold'
-                                    : 'text-red-600 font-semibold'
-                                }
-                              >
-                                {transaction.type === 'INCOME' ? 'Pemasukan' : 'Pengeluaran'}
-                              </span>
-                            </TableCell>
-
-                            {/* DESKRIPSI */}
-                            <TableCell className="text-center whitespace-nowrap">
-                              <div>
-                                <p
-                                  className="font-medium truncate"
-                                  title={transaction.description}
-                                >
-                                  {transaction.description || '-'}
-                                </p>
-
-                                {transaction.salesHeader?.buyerName && (
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    Pembeli: {transaction.salesHeader.buyerName}
+                              <TableCell>
+                                <div>
+                                  <p className="max-w-[220px] truncate" title={transaction.description}>
+                                    {transaction.description || '-'}
                                   </p>
-                                )}
-                              </div>
-                            </TableCell>
+                                  {transaction.salesHeader?.buyerName && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      Pembeli: {transaction.salesHeader.buyerName}
+                                    </p>
+                                  )}
+                                </div>
+                              </TableCell>
 
-                            {/* JUMLAH */}
-                            <TableCell
-                              className={`text-center font-semibold whitespace-nowrap ${
-                                transaction.type === 'INCOME'
-                                  ? 'text-green-600'
-                                  : 'text-red-600'
-                              }`}
-                            >
-                              {transaction.type === 'INCOME' ? '+' : '-'} Rp{' '}
-                              {transaction.amount.toLocaleString('id-ID')}
-                            </TableCell>
+                              <TableCell className={`text-center font-semibold ${transaction.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
+                                {transaction.type === 'INCOME' ? '+' : '-'} Rp {transaction.amount.toLocaleString('id-ID')}
+                              </TableCell>
 
-                            {/* AKSI */}
-                            <TableCell className="text-center whitespace-nowrap">
-                              <div className="flex justify-center gap-2">
-                                {transaction.type === 'INCOME' && transaction.salesHeader && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleEditTransactionClick(transaction.salesHeader.id)}
-                                    disabled={loadingEditIds[transaction.salesHeader.id]}
-                                  >
-                                    {loadingEditIds[transaction.salesHeader.id] ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <Edit className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                )}
+                              <TableCell className="text-center">
+                                <div className="flex justify-center gap-2">
 
-
-
-                                {transaction.type === 'INCOME' && transaction.salesHeader && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handlePrintTransaction(transaction)}
-                                    disabled={loadingPrintIds[transaction.salesHeader.id]}
-                                  >
-                                    {loadingPrintIds[transaction.salesHeader.id] ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <Printer className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                )}
-
-
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
+                                  {/* EDIT INCOME DARI PENJUALAN */}
+                                  {transaction.type === 'INCOME' && transaction.salesHeader && (
                                     <Button
                                       variant="outline"
-                                      size="icon"
-                                      className="text-red-500 hover:text-red-700"
+                                      size="sm"
+                                      onClick={() => handleEditTransactionClick(transaction.salesHeader.id)}
                                     >
-                                      <Trash2 className="h-4 w-4" />
+                                      <Edit className="h-4 w-4" />
                                     </Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Hapus Transaksi</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        Apakah Anda yakin ingin menghapus transaksi ini?
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>Batal</AlertDialogCancel>
-                                      <AlertDialogAction
-                                        onClick={() => handleDeleteTransaction(transaction.id)}
-                                      >
-                                        Hapus
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))
+                                  )}
+
+                                  {/* EDIT TRANSAKSI MANUAL */}
+                                  {canEditManual && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => {
+                                        setTransactionFormMode('EDIT')
+                                        setEditingTransactionId(transaction.id)
+
+                                        setManualTransactionForm({
+                                          type: transaction.type,
+                                          amount: transaction.amount.toString(),
+                                          description: transaction.description || '',
+                                          date: transaction.date.split('T')[0],
+                                        })
+
+                                        setIsAddTransactionOpen(true)
+                                      }}
+                                    >
+                                      <Edit className="h-4 w-4" />
+                                    </Button>
+                                  )}
+
+                                  {/* PRINT INCOME */}
+                                  {transaction.type === 'INCOME' && transaction.salesHeader && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handlePrintTransaction(transaction)}
+                                    >
+                                      <Printer className="h-4 w-4" />
+                                    </Button>
+                                  )}
+
+                                  {/* DELETE */}
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button variant="outline" size="icon" className="text-red-500 hover:text-red-700">
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </AlertDialogTrigger>
+
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Hapus Transaksi</AlertDialogTitle>
+                                        <AlertDialogDescription>Transaksi ini akan dihapus permanen.</AlertDialogDescription>
+                                      </AlertDialogHeader>
+
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Batal</AlertDialogCancel>
+                                        <AlertDialogAction onClick={() => handleDeleteTransaction(transaction.id)}>
+                                          Hapus
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })
                       )}
                     </TableBody>
-
                   </Table>
                 </div>
               </div>
             </div>
+
+            {/* DIALOG FORM MANUAL */}
+            <Dialog
+              open={isAddTransactionOpen}
+              onOpenChange={(open) => {
+                setIsAddTransactionOpen(open)
+                if (!open) {
+                  setTransactionFormMode('ADD')
+                  setEditingTransactionId(null)
+                  setManualTransactionForm({
+                    type: 'EXPENSE',
+                    amount: '',
+                    description: '',
+                    date: new Date().toISOString().split('T')[0],
+                  })
+                }
+              }}
+            >
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{transactionFormMode === 'EDIT' ? 'Edit Transaksi' : 'Tambah Transaksi'}</DialogTitle>
+                  <DialogDescription>
+                    {transactionFormMode === 'EDIT' ? 'Perbarui transaksi manual' : 'Catat pemasukan atau pengeluaran manual'}
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-4">
+                  <div>
+                    <Label>Tipe Transaksi</Label>
+                    <Select
+                      value={manualTransactionForm.type}
+                      onValueChange={(value) =>
+                        setManualTransactionForm({
+                          ...manualTransactionForm,
+                          type: value as 'INCOME' | 'EXPENSE',
+                        })
+                      }
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="INCOME">Pemasukan</SelectItem>
+                        <SelectItem value="EXPENSE">Pengeluaran</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label>Tanggal</Label>
+                    <Input
+                      type="date"
+                      value={manualTransactionForm.date}
+                      onChange={(e) =>
+                        setManualTransactionForm({ ...manualTransactionForm, date: e.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Nominal</Label>
+                    <Input
+                      type="number"
+                      value={manualTransactionForm.amount}
+                      onChange={(e) =>
+                        setManualTransactionForm({ ...manualTransactionForm, amount: e.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Deskripsi (Opsional)</Label>
+                    <Input
+                      value={manualTransactionForm.description}
+                      onChange={(e) =>
+                        setManualTransactionForm({ ...manualTransactionForm, description: e.target.value })
+                      }
+                    />
+                  </div>
+
+                  <Button
+                    onClick={handleAddManualTransaction}
+                    disabled={loading}
+                    className="w-full"
+                  >
+                    {loading ? (<><Loader2 className="h-4 w-4 animate-spin mr-2" /> Memuat…</>) : (transactionFormMode === 'EDIT' ? 'Simpan Perubahan' : 'Simpan Transaksi')}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           {/* TAB LAPORAN */}

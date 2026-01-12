@@ -146,6 +146,7 @@ export async function POST(request: NextRequest) {
         amount: Number(amount),
         description: description || '',
         date: date ? new Date(date) : new Date(),
+        isManual: true,
         // ⚠️ salesHeaderId TIDAK DIISI → transaksi manual
       },
     })
@@ -162,185 +163,146 @@ export async function POST(request: NextRequest) {
 
 // DELETE transaction
 export async function DELETE(request: NextRequest) {
-  // Gunakan Transaction agar tidak ada data 'stale' di antara proses
-  return await db.$transaction(async (tx) => {
-    try {
-      const { searchParams } = new URL(request.url);
-      const id = searchParams.get('id');
+  try {
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get("id")
 
-      if (!id) {
-        return NextResponse.json({ error: 'ID is required' }, { status: 400 });
-      }
-
-      // 1. Ambil Data Transaksi (Pakai tx, bukan db)
-      const transaction = await tx.transaction.findUnique({
-        where: { id },
-        include: {
-          salesHeader: {
-            include: {
-              items: true
-            }
-          }
-        }
-      });
-
-      if (!transaction) {
-        return NextResponse.json({ error: 'Transaction not found' }, { status: 404 });
-      }
-
-            // 2. Jika ini Transaksi PENJUALAN (Ada SalesHeader)
-      if (transaction.salesHeader) {
-        // A. Restore Stok
-        for (const item of transaction.salesHeader.items) {
-          await tx.size.update({
-            where: { id: item.sizeId },
-            data: { stock: { increment: item.quantity } }
-          });
-        }
-
-        // B. HAPUS TRANSACTION DULU (Anaknya)
-        // Kita hapus record transaction secara eksplisit agar Frontend yakin hilang
-        await tx.transaction.delete({
-          where: { id }
-        });
-
-        // C. HAPUS SALES HEADER (Induknya)
-        // Karena SalesHeader sudah tidak punya transaction yang mengunci, dia lebih mudah dihapus
-        // Atau karena cascade, mungkin sudah terhapus, tapi kita coba delete aman.
-        try {
-          await tx.salesHeader.delete({
-            where: { id: transaction.salesHeader.id }
-          });
-        } catch (e) {
-          // Abaikan error jika header sudah terhapus karena cascade
-        }
-        
-        return NextResponse.json({ message: 'Transaksi penjualan berhasil dihapus (stok dikembalikan)' });
-      } 
-      
-      // 3. Jika ini Transaksi PENGELUARAN (Ada SaleId)
-      else if (transaction.saleId) {
-        const oldSale = await tx.sale.findUnique({ where: { id: transaction.saleId } });
-
-        if (oldSale) {
-          // Restore Stok
-          await tx.size.update({
-            where: { id: oldSale.sizeId },
-            data: { stock: { increment: oldSale.quantity } }
-          });
-
-          // Hapus Sale
-          await tx.sale.delete({
-            where: { id: oldSale.id }
-          });
-        }
-
-        // Hapus Transaksi
-        await tx.transaction.delete({
-          where: { id }
-        });
-
-        return NextResponse.json({ message: 'Transaksi pengeluaran berhasil dihapus' });
-      }
-      
-      // 4. Jika ini Pengeluaran Biasa
-      else {
-        // Hapus Transaksi
-        await tx.transaction.delete({
-          where: { id }
-        });
-        return NextResponse.json({ message: 'Transaksi pengeluaran berhasil dihapus' });
-      }
-
-    } catch (error) {
-      console.error('Error deleting transaction:', error);
-      return NextResponse.json({ error: 'Failed to delete transaction' }, { status: 500 });
+    if (!id) {
+      return NextResponse.json(
+        { error: "ID transaksi tidak valid" },
+        { status: 400 }
+      )
     }
-  });
+
+    // Ambil transaksi untuk validasi
+    const transaction = await db.transaction.findUnique({
+      where: { id },
+      include: {
+        salesHeader: true,
+        rawMaterial: true,
+      },
+    })
+
+    if (!transaction) {
+      return NextResponse.json(
+        { error: "Transaksi tidak ditemukan" },
+        { status: 404 }
+      )
+    }
+
+    // 🔥 SATU BARIS PALING AMAN
+    // Cascade akan mengurus:
+    // - INCOME → SalesHeader → Sale
+    // - EXPENSE → RawMaterial
+    await db.transaction.delete({
+      where: { id },
+    })
+
+    return NextResponse.json({
+      success: true,
+      message: "Transaksi berhasil dihapus",
+    })
+  } catch (error) {
+    console.error("DELETE TRANSACTION ERROR:", error)
+    return NextResponse.json(
+      { error: "Gagal menghapus transaksi" },
+      { status: 500 }
+    )
+  }
 }
 
 // PUT /api/transactions
 export async function PUT(request: NextRequest) {
   try {
-    const { salesHeaderId, buyerName, items } = await request.json()
+    const body = await request.json()
+    
+    // ✅ Jika body punya id transaksi manual
+    if (body.id && !body.salesHeaderId) {
+      const { id, type, amount, description, date } = body
 
-    if (!salesHeaderId || !Array.isArray(items)) {
-      return NextResponse.json({ error: 'Data tidak valid' }, { status: 400 })
+      const existing = await db.transaction.findUnique({ where: { id } })
+      if (!existing) return NextResponse.json({ error: 'Transaksi tidak ditemukan' }, { status: 404 })
+      if (!existing.isManual) return NextResponse.json({ error: 'Tidak bisa edit transaksi sistem' }, { status: 403 })
+
+      const updated = await db.transaction.update({
+        where: { id },
+        data: {
+          type,
+          amount: Number(amount),
+          description,
+          date: new Date(date)
+        }
+      })
+
+      return NextResponse.json(updated)
     }
 
-    await db.$transaction(async (tx) => {
-      // 1️⃣ Ambil data lama
-      const oldItems = await tx.sale.findMany({
-        where: { headerId: salesHeaderId }
-      })
+    // ✅ Jika body punya salesHeaderId → update transaksi penjualan
+    if (body.salesHeaderId && Array.isArray(body.items)) {
+      const { salesHeaderId, buyerName, items } = body
 
-      // 2️⃣ Kembalikan stok lama
-      for (const old of oldItems) {
-        await tx.size.update({
-          where: { id: old.sizeId },
-          data: { stock: { increment: old.quantity } }
-        })
-      }
+      await db.$transaction(async (tx) => {
+        // Ambil data lama
+        const oldItems = await tx.sale.findMany({ where: { headerId: salesHeaderId } })
 
-      // 3️⃣ Validasi stok baru
-      for (const item of items) {
-        const size = await tx.size.findUnique({ where: { id: item.sizeId } })
-        if (!size || size.stock < item.qty) {
-          throw new Error(`Stok tidak cukup (${item.sizeName})`)
+        // Kembalikan stok lama
+        for (const old of oldItems) {
+          await tx.size.update({
+            where: { id: old.sizeId },
+            data: { stock: { increment: old.quantity } }
+          })
         }
-      }
 
-      // 4️⃣ Kurangi stok baru
-      for (const item of items) {
-        await tx.size.update({
-          where: { id: item.sizeId },
-          data: { stock: { decrement: item.qty } }
-        })
-      }
-
-      // 5️⃣ Update Header
-      const totalAmount = items.reduce(
-        (s: number, i: any) => s + i.price * i.qty,
-        0
-      )
-
-      const header = await tx.salesHeader.update({
-        where: { id: salesHeaderId },
-        data: { buyerName, totalAmount },
-        include: { transaction: true }
-      })
-
-      // 6️⃣ Update Transaction (uang + deskripsi)
-      const description = items
-        .map((i: any) => `${i.menuName} (${i.sizeName}) x${i.qty}`)
-        .join(', ')
-
-      await tx.transaction.update({
-        where: { id: header.transaction!.id },
-        data: {
-          amount: totalAmount,
-          description
+        // Validasi stok baru
+        for (const item of items) {
+          const size = await tx.size.findUnique({ where: { id: item.sizeId } })
+          if (!size || size.stock < item.qty) throw new Error(`Stok tidak cukup (${item.sizeName})`)
         }
+
+        // Kurangi stok baru
+        for (const item of items) {
+          await tx.size.update({
+            where: { id: item.sizeId },
+            data: { stock: { decrement: item.qty } }
+          })
+        }
+
+        // Update Header
+        const totalAmount = items.reduce((s, i) => s + i.price * i.qty, 0)
+        const header = await tx.salesHeader.update({
+          where: { id: salesHeaderId },
+          data: { buyerName, totalAmount },
+          include: { transaction: true }
+        })
+
+        // Update Transaction (uang + deskripsi)
+        const description = items.map(i => `${i.menuName} (${i.sizeName}) x${i.qty}`).join(', ')
+        await tx.transaction.update({
+          where: { id: header.transaction!.id },
+          data: { amount: totalAmount, description }
+        })
+
+        // Replace items
+        await tx.sale.deleteMany({ where: { headerId: salesHeaderId } })
+        await tx.sale.createMany({
+          data: items.map(i => ({
+            headerId: salesHeaderId,
+            menuId: i.menuId,
+            sizeId: i.sizeId,
+            quantity: i.qty,
+            price: i.price,
+            total: i.price * i.qty
+          }))
+        })
       })
 
-      // 7️⃣ Replace items
-      await tx.sale.deleteMany({ where: { headerId: salesHeaderId } })
+      return NextResponse.json({ success: true })
+    }
 
-      await tx.sale.createMany({
-        data: items.map((i: any) => ({
-          headerId: salesHeaderId,
-          menuId: i.menuId,
-          sizeId: i.sizeId,
-          quantity: i.qty,
-          price: i.price,
-          total: i.price * i.qty
-        }))
-      })
-    })
-
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ error: 'Data tidak valid' }, { status: 400 })
   } catch (err: any) {
     console.error(err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 })
   }
 }
+

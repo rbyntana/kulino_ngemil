@@ -74,10 +74,24 @@ export async function PUT(request: NextRequest) {
         data: { name, image },
       })
 
-      // 2️⃣ Update / Create sizes
+      // 2️⃣ Ambil ID size yang MASIH ADA
+      const incomingSizeIds = sizes
+        .filter((s: any) => s.id)
+        .map((s: any) => s.id)
+
+      // 3️⃣ HAPUS size lama yang tidak ada di form 🔥
+      await tx.size.deleteMany({
+        where: {
+          menuId: id,
+          id: {
+            notIn: incomingSizeIds.length > 0 ? incomingSizeIds : ['__none__'],
+          },
+        },
+      })
+
+      // 4️⃣ Update / Create size
       for (const s of sizes) {
         if (s.id) {
-          // Update size lama
           await tx.size.update({
             where: { id: s.id },
             data: {
@@ -87,7 +101,6 @@ export async function PUT(request: NextRequest) {
             },
           })
         } else {
-          // Size baru
           await tx.size.create({
             data: {
               menuId: id,

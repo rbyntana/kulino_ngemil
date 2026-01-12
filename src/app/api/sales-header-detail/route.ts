@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { da } from 'date-fns/locale'
 
 export async function GET(request: NextRequest) {
   try {
@@ -35,6 +36,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       id: header.id,                     // salesHeaderId
       transactionId: header.transactionId, // transactionId
+      date: header.transaction.date,
       buyerName: header.buyerName,        // ✅ INI YANG HILANG
       amount: header.transaction.amount,
       items: header.items
