@@ -1533,28 +1533,59 @@ useEffect(() => {
                   {/* SIZES */}
                   <CardContent className="flex flex-col gap-2">
                     {menu.sizes.map((size) => (
-                      <div key={size.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center text-sm bg-white p-2 rounded border shadow-sm">
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
-                          <span>Ukuran: <Badge variant="secondary">{size.size}</Badge></span>
-                          <span className="font-semibold text-gray-700">Harga : {size.price.toLocaleString('id-ID')}</span>
-                        </div>
-                        <div className="flex items-center gap-3 mt-2 sm:mt-0">
-                          <span className={`text-xs font-medium ${size.stock > 0 ? 'text-green-600' : 'text-red-600'}`}>Stok: {size.stock}</span>
-                          <Button size="sm" className="h-7 w-7 p-0 rounded-full bg-blue-600 hover:bg-blue-700" onClick={() => addToCart(menu, size)} disabled={size.stock <= 0}>
-                            <Plus className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
+<div
+  key={size.id}
+  className="flex justify-between items-center text-sm bg-white p-2 rounded border shadow-sm"
+>
+  {/* Ukuran */}
+  <div className="flex-1 min-w-0 flex justify-center items-center">
+    <span className="font-semibold truncate text-center w-full">
+      {size.size}
+    </span>
+  </div>
+
+  {/* Harga */}
+  <div className="flex-shrink-0 flex justify-center items-center mx-2 min-w-[80px]">
+    <span className="text-gray-700 font-semibold text-center">
+      Harga: Rp. {size.price.toLocaleString('id-ID')}
+    </span>
+  </div>
+
+  {/* Stok */}
+  <div className="flex-shrink-0 flex justify-center items-center mx-2 min-w-[60px]">
+    <span className={`text-xs font-medium text-center ${size.stock > 0 ? 'text-green-600' : 'text-red-600'}`}>
+      Stok: {size.stock}
+    </span>
+  </div>
+
+  {/* Tombol Add */}
+  <div className="flex-shrink-0 flex justify-center items-center">
+    <Button
+      size="sm"
+      className="h-7 w-7 p-0 rounded-full bg-blue-600 hover:bg-blue-700"
+      onClick={() => addToCart(menu, size)}
+      disabled={size.stock <= 0}
+    >
+      <Plus className="h-4 w-4" />
+    </Button>
+  </div>
+</div>
+
                     ))}
 
                     {/* ACTION BUTTONS */}
-                    <div className="flex flex-col sm:flex-row gap-2 mt-2">
-                      <Button variant="outline" size="sm" onClick={() => handleEditMenu(menu)} className="flex-1">
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleEditMenu(menu)}
+                        className="flex-1 min-w-[120px]"
+                      >
                         <Edit className="h-4 w-4 mr-2" /> Edit Menu
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button variant="outline" size="sm">
+                          <Button variant="outline" size="sm" className="min-w-[40px]">
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </AlertDialogTrigger>
@@ -1574,6 +1605,7 @@ useEffect(() => {
                 </Card>
               ))}
             </div>
+
           </TabsContent>
           
           {/* TAB PRE-ORDER */}
