@@ -27,13 +27,13 @@ export async function POST(req: Request) {
     // 1. Ubah cart menjadi String JSON
     const cartString = JSON.stringify(items)
     
-    // 2. PAKSA tipe data menjadi 'string' (Tidak boleh JSON)
+    // 2. PAKSA tipe data menjadi 'string'
     const preOrder = await db.preOrder.create({
       data: {
         buyerName,
         totalAmount,
         status: 'pending',
-        cart: cartString as String // <--- WAJIB 'as String'
+        cart: cartString as String 
       }
     })
 
@@ -44,19 +44,39 @@ export async function POST(req: Request) {
   }
 }
 
-// 3. PUT: Update Status Pre-Order
+// 3. PUT: Update Pre-Order (Edit Nama, Item, atau Status)
 export async function PUT(req: Request) {
   try {
     const body = await req.json()
-    const { id, status } = body
+    const { id, buyerName, items, totalAmount, status } = body
 
-    if (!id || !status) {
-      return NextResponse.json({ error: "ID atau Status tidak valid" }, { status: 400 })
+    if (!id) {
+      return NextResponse.json({ error: "ID Pre-Order tidak valid" }, { status: 400 })
     }
 
+    // Siapkan data yang akan diupdate
+    const dataToUpdate: any = {}
+
+    // Jika ada update status (misal dari client lain)
+    if (status) {
+      dataToUpdate.status = status
+    }
+
+    // Jika ada update dari Frontend (Edit Pre-Order)
+    if (buyerName !== undefined) {
+      dataToUpdate.buyerName = buyerName
+    }
+
+    if (items && totalAmount !== undefined) {
+      // Serialize cart kembali ke string JSON
+      dataToUpdate.cart = JSON.stringify(items) as String
+      dataToUpdate.totalAmount = totalAmount
+    }
+
+    // Lakukan update
     const updatedPreOrder = await db.preOrder.update({
       where: { id },
-      data: { status }
+      data: dataToUpdate
     })
 
     return NextResponse.json(updatedPreOrder)

@@ -144,6 +144,11 @@ export default function Home() {
   const [isSaving, setIsSaving] = useState(false);
   const {toast} = useToast()
   const [transactionFilter, setTransactionFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE'>('ALL')
+    // State Edit Pre-Order (Baru)
+  const [isEditPreOrderOpen, setIsEditPreOrderOpen] = useState(false)
+  const [editingPreOrderId, setEditingPreOrderId] = useState<string | null>(null)
+  const [editPreOrderCart, setEditPreOrderCart] = useState<any[]>([])
+  const [editPreOrderBuyerName, setEditPreOrderBuyerName] = useState("")
 
   // State Form & UI
   const [isEditTransactionOpen, setIsEditTransactionOpen] = useState(false)
@@ -153,6 +158,87 @@ export default function Home() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [buyerName, setBuyerName] = useState("")
   
+  // Handler: Klik tombol Edit di Pre-Order
+  const handleEditPreOrderClick = (po: any) => {
+    // 1. Ambil data menus FRESH setiap kali tombol diklik
+    // Jangan pakai 'menus' dari closure luar, tapi ambil referensi terbaru
+    const currentMenus = [...menus]; 
+
+    setEditingPreOrderId(po.id)
+    setEditPreOrderBuyerName(po.buyerName)
+    
+    // Parse cart
+    const cartItems = Array.isArray(po.cart) ? po.cart : JSON.parse(po.cart)
+    
+    // Mapping data
+    const itemsWithSizes = cartItems.map((item: any) => {
+      // 2. Gunakan currentMenus untuk pencarian
+      const menu = currentMenus.find((m) => String(m.id) === String(item.menuId))
+      
+      let finalSizes: any[] = []
+
+      if (menu) {
+        // Jika ketemu, pakai sizes terbaru
+        finalSizes = menu.sizes 
+      } else {
+        // Jika tidak ketemu (Data lama/ID beda), buat dummy size
+        finalSizes = [{
+          id: item.sizeId, 
+          size: item.sizeName, 
+          price: item.price, 
+          stock: 999 
+        }]
+      }
+
+      // Debug: Lihat apakah 'finalSizes' terisi
+      console.log(`Item: ${item.menuName}, SizesCount: ${finalSizes.length}, FirstSize: ${finalSizes[0]?.size}`);
+
+      return {
+        ...item,
+        sizes: finalSizes
+      }
+    })
+
+    setEditPreOrderCart(itemsWithSizes)
+    setIsEditPreOrderOpen(true)
+  }
+
+  // Handler: Simpan Update Pre-Order
+  const handleUpdatePreOrder = async () => {
+    if (isSaving) return
+    setIsSaving(true)
+
+    try {
+      const totalAmount = editPreOrderCart.reduce((sum, item) => sum + (item.price * item.qty), 0)
+
+      const response = await fetch('/api/preorders', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingPreOrderId,
+          buyerName: editPreOrderBuyerName,
+          totalAmount: totalAmount,
+          items: editPreOrderCart.map(item => ({
+            menuId: item.menuId,
+            sizeId: item.sizeId,
+            price: item.price,
+            qty: item.qty
+          }))
+        })
+      })
+
+      if (!response.ok) throw new Error('Gagal update pre-order')
+
+      toast({ title: 'Berhasil', description: 'Pre-Order berhasil diperbarui' })
+      setIsEditPreOrderOpen(false)
+      fetchPreOrders() // Refresh data
+    } catch (err) {
+      toast({ title: 'Gagal', description: 'Gagal menyimpan perubahan' })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   // State Pre-Order
   const [savedPreOrders, setSavedPreOrders] = useState<any[]>([])
 
@@ -1734,14 +1820,7 @@ useEffect(() => {
 
                           {/* BUTTON — SELALU DI BAWAH */}
                           <div className="flex justify-end gap-2 mt-auto pt-3">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handlePrintPreOrder(po)}
-                              className="text-blue-600 hover:text-blue-700"
-                            >
-                              <Printer className="h-4 w-4" />
-                            </Button>
+                            
                             <Button
                               onClick={() => handleProcessSavedOrder(po)}
                               disabled={processingOrderId === po.id || po.status === 'taken'}
@@ -1749,6 +1828,21 @@ useEffect(() => {
                               {processingOrderId === po.id
                                 ? 'Memproses…'
                                 : 'Simpan Pre-Order'}
+                            </Button>
+
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEditPreOrderClick(po)}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handlePrintPreOrder(po)}
+                            >
+                              <Printer className="h-4 w-4" />
                             </Button>
 
                             <Button
@@ -2238,7 +2332,7 @@ useEffect(() => {
 
       {/* Edit Transaction Dialog */}
       <Dialog open={isEditTransactionOpen} onOpenChange={setIsEditTransactionOpen}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Edit Transaksi</DialogTitle>
             <DialogDescription>
@@ -2255,33 +2349,120 @@ useEffect(() => {
             />
           </div>
 
-          {/* Table */}
-          <div className="border rounded-lg overflow-hidden relative mt-4">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="p-3 text-left">Menu</th>
-                  <th className="p-3 text-center">Ukuran</th>
-                  <th className="p-3 text-center">Qty</th>
-                  <th className="p-3 text-right">Harga</th>
-                  <th className="p-3 text-right">Subtotal</th>
-                  <th className="p-3 text-center">Aksi</th>
-                </tr>
-              </thead>
+          {/* Scrollable List Item */}
+          <div className="flex-1 overflow-y-auto border rounded-lg mt-4 pr-1">
+            <div className="hidden md:block"> {/* Tampilan Tabel untuk Desktop */}
+              <table className="w-full text-sm">
+                <thead className="bg-gray-100 sticky top-0 z-10">
+                  <tr>
+                    <th className="p-3 text-left">Menu</th>
+                    <th className="p-3 text-center">Ukuran</th>
+                    <th className="p-3 text-center">Qty</th>
+                    <th className="p-3 text-right">Harga</th>
+                    <th className="p-3 text-right">Subtotal</th>
+                    <th className="p-3 text-center">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {editCart.map((item, index) => (
+                    <tr key={index} className="border-t hover:bg-gray-50 transition">
+                      {/* Menu */}
+                      <td className="p-3 font-medium min-w-[150px] max-w-[200px]">
+                        <div className="truncate" title={item.menuName}>
+                          {item.menuName}
+                        </div>
+                      </td>
+                      {/* Size */}
+                      <td className="p-3 text-center">
+                        <Select
+                          value={item.sizeId}
+                          onValueChange={(value) => {
+                            const newSize = item.sizes.find((s: any) => s.id === value)
+                            const newCart = [...editCart]
+                            newCart[index] = {
+                              ...item,
+                              sizeId: newSize.id,
+                              sizeName: newSize.size,
+                              price: newSize.price
+                            }
+                            setEditCart(newCart)
+                          }}
+                        >
+                          <SelectTrigger className="w-[100px] mx-auto">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {item.sizes.map((s: any) => (
+                              <SelectItem key={s.id} value={s.id}>{s.size}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </td>
+                      {/* Qty */}
+                      <td className="p-3 text-center">
+                        <Input
+                          type="number"
+                          min={1}
+                          value={item.qty}
+                          onChange={(e) => {
+                            const newCart = [...editCart]
+                            newCart[index].qty = Number(e.target.value)
+                            setEditCart(newCart)
+                          }}
+                          className="w-16 text-center mx-auto"
+                        />
+                      </td>
+                      {/* Harga */}
+                      <td className="p-3 text-right whitespace-nowrap text-xs">
+                        Rp {item.price.toLocaleString('id-ID')}
+                      </td>
+                      {/* Subtotal */}
+                      <td className="p-3 text-right font-semibold whitespace-nowrap text-xs">
+                        Rp {(item.price * item.qty).toLocaleString('id-ID')}
+                      </td>
+                      {/* Aksi */}
+                      <td className="p-3 text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-500 hover:text-red-700 h-8 w-8 p-0"
+                          onClick={() => {
+                            const newCart = [...editCart]
+                            newCart.splice(index, 1)
+                            setEditCart(newCart)
+                          }}
+                        >
+                          ✕
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-              <tbody>
-                {editCart.map((item, index) => (
-                  <tr
-                    key={index}
-                    className="border-t hover:bg-gray-50 transition"
-                  >
-                    {/* Menu */}
-                    <td className="p-3 font-medium">
-                      {item.menuName}
-                    </td>
-
-                    {/* Size */}
-                    <td className="p-3 text-center">
+            <div className="md:hidden space-y-3"> {/* Tampilan Card untuk Mobile */}
+              {editCart.map((item, index) => (
+                <div key={index} className="border rounded-lg p-3 bg-white shadow-sm">
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="font-medium text-sm break-words flex-1">{item.menuName}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-500 h-6 w-6 p-0 ml-2"
+                      onClick={() => {
+                        const newCart = [...editCart]
+                        newCart.splice(index, 1)
+                        setEditCart(newCart)
+                      }}
+                    >
+                      ✕
+                    </Button>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <Label className="text-xs text-gray-500">Ukuran</Label>
                       <Select
                         value={item.sizeId}
                         onValueChange={(value) => {
@@ -2296,22 +2477,19 @@ useEffect(() => {
                           setEditCart(newCart)
                         }}
                       >
-                        <SelectTrigger className="w-[95px] mx-auto">
+                        <SelectTrigger className="w-full">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           {item.sizes.map((s: any) => (
-                            <SelectItem key={s.id} value={s.id}>
-                              {s.size}
-                            </SelectItem>
+                            <SelectItem key={s.id} value={s.id}>{s.size}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
+                    </div>
 
-                    </td>
-
-                    {/* Qty */}
-                    <td className="p-3 text-center">
+                    <div>
+                      <Label className="text-xs text-gray-500">Qty</Label>
                       <Input
                         type="number"
                         min={1}
@@ -2321,43 +2499,28 @@ useEffect(() => {
                           newCart[index].qty = Number(e.target.value)
                           setEditCart(newCart)
                         }}
-                        className="w-16 text-center mx-auto"
+                        className="w-full"
                       />
-                    </td>
+                    </div>
 
-                    {/* Harga */}
-                    <td className="p-3 text-right whitespace-nowrap">
-                      Rp {item.price.toLocaleString('id-ID')}
-                    </td>
-
-                    {/* Subtotal */}
-                    <td className="p-3 text-right font-semibold whitespace-nowrap">
-                      Rp {(item.price * item.qty).toLocaleString('id-ID')}
-                    </td>
-
-                    {/* Aksi */}
-                    <td className="p-3 text-center">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-red-500 hover:text-red-700"
-                        onClick={() => {
-                          const newCart = [...editCart]
-                          newCart.splice(index, 1)
-                          setEditCart(newCart)
-                        }}
-                      >
-                        ✕
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    <div className="col-span-2 flex justify-between items-end border-t pt-2 mt-1">
+                      <div>
+                        <div className="text-xs text-gray-500">Harga</div>
+                        <div className="text-xs">Rp {item.price.toLocaleString('id-ID')}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-gray-500">Subtotal</div>
+                        <div className="font-bold text-sm">Rp {(item.price * item.qty).toLocaleString('id-ID')}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Footer */}
-          <div className="flex justify-between items-center mt-4">
+          <div className="flex justify-between items-center pt-4 mt-2 border-t shrink-0">
             <div className="text-lg font-bold">
               Total: Rp{' '}
               {editCart
@@ -2366,27 +2529,230 @@ useEffect(() => {
             </div>
 
             <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setIsEditTransactionOpen(false)}
-              >
+              <Button variant="outline" onClick={() => setIsEditTransactionOpen(false)}>
                 Batal
               </Button>
               <Button
-                className="bg-blue-600 hover:bg-blue-700 flex items-center justify-center gap-2"
+                className="bg-blue-600 hover:bg-blue-700"
                 onClick={handleUpdateTransaction}
-                disabled={isSaving} // disable saat loading
+                disabled={isSaving}
               >
-                {isSaving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Menyimpan…
-                  </>
-                ) : (
-                  'Simpan Perubahan'
-                )}
+                {isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> Menyimpan…</> : 'Simpan Perubahan'}
               </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
+      {/* Edit Pre-Order Dialog */}
+      <Dialog open={isEditPreOrderOpen} onOpenChange={setIsEditPreOrderOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Edit Pre-Order</DialogTitle>
+            <DialogDescription>
+              Ubah jumlah atau ukuran pesanan pre-order.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Nama Pembeli */}
+          <div className="space-y-1">
+            <Label>Nama Pembeli</Label>
+            <Input
+              value={editPreOrderBuyerName}
+              onChange={(e) => setEditPreOrderBuyerName(e.target.value)}
+            />
+          </div>
+
+          {/* Scrollable List Item */}
+          <div className="flex-1 overflow-y-auto border rounded-lg mt-4 pr-1">
+            <div className="hidden md:block"> {/* Tampilan Tabel untuk Desktop */}
+              <table className="w-full text-sm">
+                <thead className="bg-gray-100 sticky top-0 z-10">
+                  <tr>
+                    <th className="p-3 text-left">Menu</th>
+                    <th className="p-3 text-center">Ukuran</th>
+                    <th className="p-3 text-center">Qty</th>
+                    <th className="p-3 text-right">Harga</th>
+                    <th className="p-3 text-right">Subtotal</th>
+                    <th className="p-3 text-center">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {editPreOrderCart.map((item, index) => (
+                    <tr key={index} className="border-t hover:bg-gray-50 transition">
+                      {/* Menu */}
+                      <td className="p-3 font-medium min-w-[150px] max-w-[200px]">
+                        <div className="truncate" title={item.menuName}>
+                          {item.menuName}
+                        </div>
+                      </td>
+                      {/* Size */}
+                      <td className="p-3 text-center">
+                        <Select
+                          value={item.sizeId}
+                          onValueChange={(value) => {
+                            const newSize = item.sizes.find((s: any) => s.id === value)
+                            const newCart = [...editPreOrderCart]
+                            newCart[index] = {
+                              ...item,
+                              sizeId: newSize.id,
+                              sizeName: newSize.size,
+                              price: newSize.price
+                            }
+                            setEditPreOrderCart(newCart)
+                          }}
+                        >
+                          <SelectTrigger className="w-[100px] mx-auto">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {item.sizes.map((s: any) => (
+                              <SelectItem key={s.id} value={s.id}>{s.size}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </td>
+                      {/* Qty */}
+                      <td className="p-3 text-center">
+                        <Input
+                          type="number"
+                          min={1}
+                          value={item.qty}
+                          onChange={(e) => {
+                            const newCart = [...editPreOrderCart]
+                            newCart[index].qty = Number(e.target.value)
+                            setEditPreOrderCart(newCart)
+                          }}
+                          className="w-16 text-center mx-auto"
+                        />
+                      </td>
+                      {/* Harga */}
+                      <td className="p-3 text-right whitespace-nowrap text-xs">
+                        Rp {item.price.toLocaleString('id-ID')}
+                      </td>
+                      {/* Subtotal */}
+                      <td className="p-3 text-right font-semibold whitespace-nowrap text-xs">
+                        Rp {(item.price * item.qty).toLocaleString('id-ID')}
+                      </td>
+                      {/* Aksi */}
+                      <td className="p-3 text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-500 hover:text-red-700 h-8 w-8 p-0"
+                          onClick={() => {
+                            const newCart = [...editPreOrderCart]
+                            newCart.splice(index, 1)
+                            setEditPreOrderCart(newCart)
+                          }}
+                        >
+                          ✕
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="md:hidden space-y-3"> {/* Tampilan Card untuk Mobile */}
+              {editPreOrderCart.map((item, index) => (
+                <div key={index} className="border rounded-lg p-3 bg-white shadow-sm">
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="font-medium text-sm break-words flex-1">{item.menuName}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-500 h-6 w-6 p-0 ml-2"
+                      onClick={() => {
+                        const newCart = [...editPreOrderCart]
+                        newCart.splice(index, 1)
+                        setEditPreOrderCart(newCart)
+                      }}
+                    >
+                      ✕
+                    </Button>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <Label className="text-xs text-gray-500">Ukuran</Label>
+                      <Select
+                        value={item.sizeId}
+                        onValueChange={(value) => {
+                          const newSize = item.sizes.find((s: any) => s.id === value)
+                          const newCart = [...editPreOrderCart]
+                          newCart[index] = {
+                            ...item,
+                            sizeId: newSize.id,
+                            sizeName: newSize.size,
+                            price: newSize.price
+                          }
+                          setEditPreOrderCart(newCart)
+                        }}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {item.sizes.map((s: any) => (
+                            <SelectItem key={s.id} value={s.id}>{s.size}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs text-gray-500">Qty</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={item.qty}
+                        onChange={(e) => {
+                          const newCart = [...editPreOrderCart]
+                          newCart[index].qty = Number(e.target.value)
+                          setEditPreOrderCart(newCart)
+                        }}
+                        className="w-full"
+                      />
+                    </div>
+
+                    <div className="col-span-2 flex justify-between items-end border-t pt-2 mt-1">
+                      <div>
+                        <div className="text-xs text-gray-500">Harga</div>
+                        <div className="text-xs">Rp {item.price.toLocaleString('id-ID')}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-gray-500">Subtotal</div>
+                        <div className="font-bold text-sm">Rp {(item.price * item.qty).toLocaleString('id-ID')}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="flex justify-between items-center pt-4 mt-2 border-t shrink-0">
+            <div className="text-lg font-bold">
+              Total: Rp{' '}
+              {editPreOrderCart
+                .reduce((s, i) => s + i.price * i.qty, 0)
+                .toLocaleString('id-ID')}
+            </div>
+
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setIsEditPreOrderOpen(false)}>
+                Batal
+              </Button>
+              <Button
+                className="bg-yellow-500 hover:bg-yellow-600"
+                onClick={handleUpdatePreOrder}
+                disabled={isSaving}
+              >
+                {isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> Menyimpan…</> : 'Simpan Perubahan'}
+              </Button>
             </div>
           </div>
         </DialogContent>
