@@ -477,7 +477,7 @@ export default function Home() {
   // 5. Print Transaction
   const [loadingPrintIds, setLoadingPrintIds] = useState<Record<string, boolean>>({});
   const [loadingEditIds, setLoadingEditIds] = useState<Record<string, boolean>>({});
-
+  // 2. UPDATE Handler Print Transaction (Cash)
   const handlePrintTransaction = async (transaction: any) => {
     const salesHeaderId = transaction.salesHeader?.id;
     if (!salesHeaderId) {
@@ -487,9 +487,8 @@ export default function Home() {
       });
     }
 
-    if (loadingPrintIds[salesHeaderId]) return; // cegah double click
+    if (loadingPrintIds[salesHeaderId]) return;
 
-    // set loading per baris
     setLoadingPrintIds(prev => ({ ...prev, [salesHeaderId]: true }));
 
     try {
@@ -497,9 +496,15 @@ export default function Home() {
       if (!res.ok) throw new Error("Gagal ambil detail");
 
       const detail = await res.json();
-      console.log("DETAIL DARI API:", detail);
-      setPrintData(detail);
-      setIsPrintDialogOpen(true); // 🔥 buka dialog
+      
+      // ⬇️ TAMBAHKAN receiptType: "CASH" AGAR TAMPILAN KONSISTEN ⬇️
+      const detailWithType = {
+        ...detail,
+        receiptType: "CASH" as const
+      };
+
+      setPrintData(detailWithType);
+      setIsPrintDialogOpen(true);
     } catch (err) {
       console.error("PRINT ERROR:", err);
       toast({
@@ -1094,7 +1099,38 @@ export default function Home() {
     console.error("GAGAL BUAT STRUK PNG:", err)
   }
 }
+  // Handler Print Pre-Order
+  // Handler Print Pre-Order
+  const handlePrintPreOrder = (po: any) => {
+    // 1. Parse cart
+    const cartItems = Array.isArray(po.cart) ? po.cart : JSON.parse(po.cart)
 
+    // 2. Format data agar komponen struk tahu ini Pre-Order
+    const formattedData = {
+      id: po.id,
+      buyerName: po.buyerName,
+      totalAmount: po.totalAmount,
+      date: po.createdAt,
+      
+      // ⬇️ INI YANG PENTING ⬇️
+      // Tanpa baris ini, judul akan menjadi default "STRUK PEMBELIAN"
+      receiptType: "PRE_ORDER", 
+
+      items: cartItems.map((item: any) => ({
+        menuName: item.menuName,
+        sizeName: item.sizeName,
+        qty: item.qty,
+        price: item.price,
+        // Optional mapping
+        menu: { name: item.menuName },
+        size: { size: item.sizeName }
+      }))
+    }
+
+    // 3. Set data & Buka dialog
+    setPrintData(formattedData)
+    setIsPrintDialogOpen(true)
+  }
   // 13. tambah manual transaksi
   const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false)
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null)
@@ -1533,43 +1569,43 @@ useEffect(() => {
                   {/* SIZES */}
                   <CardContent className="flex flex-col gap-2">
                     {menu.sizes.map((size) => (
-<div
-  key={size.id}
-  className="flex justify-between items-center text-sm bg-white p-2 rounded border shadow-sm"
->
-  {/* Ukuran */}
-  <div className="flex-1 min-w-0 flex justify-center items-center">
-    <span className="font-semibold truncate text-center w-full">
-      {size.size}
-    </span>
-  </div>
+                    <div
+                      key={size.id}
+                      className="flex justify-between items-center text-sm bg-white p-2 rounded border shadow-sm"
+                    >
+                      {/* Ukuran */}
+                      <div className="flex-1 min-w-0 flex justify-center items-center">
+                        <span className="font-semibold truncate text-center w-full">
+                          {size.size}
+                        </span>
+                      </div>
 
-  {/* Harga */}
-  <div className="flex-shrink-0 flex justify-center items-center mx-2 min-w-[80px]">
-    <span className="text-gray-700 font-semibold text-center">
-      Harga: Rp. {size.price.toLocaleString('id-ID')}
-    </span>
-  </div>
+                      {/* Harga */}
+                      <div className="flex-shrink-0 flex justify-center items-center mx-2 min-w-[80px]">
+                        <span className="text-gray-700 font-semibold text-center">
+                          Harga: Rp. {size.price.toLocaleString('id-ID')}
+                        </span>
+                      </div>
 
-  {/* Stok */}
-  <div className="flex-shrink-0 flex justify-center items-center mx-2 min-w-[60px]">
-    <span className={`text-xs font-medium text-center ${size.stock > 0 ? 'text-green-600' : 'text-red-600'}`}>
-      Stok: {size.stock}
-    </span>
-  </div>
+                      {/* Stok */}
+                      <div className="flex-shrink-0 flex justify-center items-center mx-2 min-w-[60px]">
+                        <span className={`text-xs font-medium text-center ${size.stock > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          Stok: {size.stock}
+                        </span>
+                      </div>
 
-  {/* Tombol Add */}
-  <div className="flex-shrink-0 flex justify-center items-center">
-    <Button
-      size="sm"
-      className="h-7 w-7 p-0 rounded-full bg-blue-600 hover:bg-blue-700"
-      onClick={() => addToCart(menu, size)}
-      disabled={size.stock <= 0}
-    >
-      <Plus className="h-4 w-4" />
-    </Button>
-  </div>
-</div>
+                      {/* Tombol Add */}
+                      <div className="flex-shrink-0 flex justify-center items-center">
+                        <Button
+                          size="sm"
+                          className="h-7 w-7 p-0 rounded-full bg-blue-600 hover:bg-blue-700"
+                          onClick={() => addToCart(menu, size)}
+                          disabled={size.stock <= 0}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
 
                     ))}
 
@@ -1698,6 +1734,14 @@ useEffect(() => {
 
                           {/* BUTTON — SELALU DI BAWAH */}
                           <div className="flex justify-end gap-2 mt-auto pt-3">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handlePrintPreOrder(po)}
+                              className="text-blue-600 hover:text-blue-700"
+                            >
+                              <Printer className="h-4 w-4" />
+                            </Button>
                             <Button
                               onClick={() => handleProcessSavedOrder(po)}
                               disabled={processingOrderId === po.id || po.status === 'taken'}
