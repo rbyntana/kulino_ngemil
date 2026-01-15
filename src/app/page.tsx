@@ -221,6 +221,8 @@ export default function Home() {
           items: editPreOrderCart.map(item => ({
             menuId: item.menuId,
             sizeId: item.sizeId,
+            menuName: item.menuName, // ⬅️ TAMBAHKAN INI
+            sizeName: item.sizeName, // ⬅️ DAN INI
             price: item.price,
             qty: item.qty
           }))
@@ -1164,7 +1166,7 @@ export default function Home() {
     }
   }
  // 12. Download Receipt as PNG
-  const downloadReceiptPNG = async () => {
+const downloadReceiptPNG = async () => {
   if (!receiptRef.current) {
     console.error("REF STRUK TIDAK ADA")
     return
@@ -1177,14 +1179,26 @@ export default function Home() {
       backgroundColor: "white",
     })
 
+    // 1. Ambil nama pembeli dan bersihkan karakter aneh
+    const buyerName = printData?.buyerName || "pembeli"
+    const safeName = buyerName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+
+    // 2. Buat tanggal format DDMMYY
+    const dateObj = new Date(printData?.date || Date.now());
+    const dd = String(dateObj.getDate()).padStart(2, '0');
+    const mm = String(dateObj.getMonth() + 1).padStart(2, '0'); // +1 karena Januari = 0
+    const yy = String(dateObj.getFullYear()).slice(-2); // Ambil 2 digit terakhir
+    const dateStr = `${dd}${mm}${yy}`;
+
     const link = document.createElement("a")
-    link.download = `struk-pembelian-${Date.now()}.png`
+    // Format: struk-pembelian-nama_ddmmyy.png
+    link.download = `struk-pembelian-${safeName}_${dateStr}.png`
     link.href = dataUrl
     link.click()
   } catch (err) {
     console.error("GAGAL BUAT STRUK PNG:", err)
   }
-}
+  }
   // Handler Print Pre-Order
   // Handler Print Pre-Order
   const handlePrintPreOrder = (po: any) => {
