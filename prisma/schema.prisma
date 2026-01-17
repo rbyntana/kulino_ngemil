@@ -5,6 +5,11 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// datasource db {
+//   provider = "sqlite"
+//   url      = "file:./dev.db"
+// }
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -17,13 +22,16 @@ model RawMaterial {
   quantity    Float
   unit        String
   totalPrice  Float
+  
+  // ⬇️ UPDATE: Tambahkan kolom date di sini
+  date        DateTime? 
+  
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  transactions Transaction[] // 🔥 INI YANG PENTING
+  transactions Transaction[]
   menuItems    MenuItem[]
 }
-
 
 model Size {
   id        String  @id @default(cuid())
@@ -32,7 +40,7 @@ model Size {
   stock     Int
   menuId    String
   menu      Menu    @relation(fields: [menuId], references: [id], onDelete: Cascade)
-  sales     Sale[]  // Tetap terhubung ke Sale (Detail Item)
+  sales     Sale[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -44,7 +52,7 @@ model Menu {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   sizes       Size[]
-  sales       Sale[]  // Tetap terhubung ke Sale (Detail Item)
+  sales       Sale[]
   rawMaterials MenuItem[]
 }
 
@@ -63,43 +71,27 @@ model SalesHeader {
   id          String   @id @default(cuid())
   buyerName   String
   totalAmount Float
-  date        DateTime @default(now())
+  date        DateTime @default(now()) // ⬇️ PENTING: Header punya date
   createdAt   DateTime @default(now())
   
-  // Relasi ke Item
   items       Sale[]   
-  
-  // Relasi ke Transaction (Nama relasi: transaksiUang)
   transaction Transaction? @relation("transaksiUang")
 }
 
 // --- MODEL YANG DIUBAH: DETAIL ITEM ---
 model Sale {
   id        String   @id @default(cuid())
-  
-  // Kita buat relasi ke Header baru ini
   headerId  String
   header    SalesHeader @relation(fields: [headerId], references: [id], onDelete: Cascade)
-  
-  // Data detail tetap ada
   menuId    String
   sizeId    String
   quantity  Int
   price     Float
-  total     Float // Harga satuan * quantity
-  
-  // Kolom lama yang mungkin tidak terlalu dipakai lagi tapi kita biarkan agar tidak error
+  total     Float
   date      DateTime @default(now()) 
   createdAt DateTime @default(now())
-  
-  // Relasi
   menu      Menu     @relation(fields: [menuId], references: [id], onDelete: Cascade)
   size      Size     @relation(fields: [sizeId], references: [id], onDelete: Cascade)
-  
-  // Kita hapus transactionId unik di sini, karena transaksi sekarang ada di Header
-  // Jika Prisma complain saat npx prisma db push karena kolom ini sudah ada di DB,
-  // kita akan biarkan kolom fisiknya ada di database tapi dihilangkan di schema (atau buat nullable).
-  // Tapi untuk schema bersih, relasi cukup lewat Header.
 }
 
 model Transaction {
@@ -107,33 +99,28 @@ model Transaction {
   type        String   // INCOME | EXPENSE
   amount      Float
   description String
-  date        DateTime @default(now())
+  
+  // ⬇️ PENTING: Kolom date ini yang akan tampil di Tab Transaksi
+  date        DateTime @default(now()) 
+  
   createdAt   DateTime @default(now())
 
-  // sudah ada
   salesHeaderId String?  @unique
   salesHeader   SalesHeader? @relation("transaksiUang", fields: [salesHeaderId], references: [id])
 
-  // 🔥 BARU (untuk bahan baku)
+  // 🔥 Untuk bahan baku
   rawMaterialId String?
   rawMaterial   RawMaterial? @relation(fields: [rawMaterialId], references: [id], onDelete: Cascade)
 
   isManual   Boolean  @default(false)
 }
 
-
-
-
 model PreOrder {
   id          String   @id @default(cuid())
   buyerName   String
   totalAmount Int
-  status      String // 'pending', 'ready', 'taken'
-  cart        String // Kita simpan cart sebagai String JSON
-  
+  status      String 
+  cart        String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-
-  // RELASI (Opsional, untuk memanggil data lain)
-  // salesHeader SalesHeader? <-- (Jika kamu ingin relasi, nanti diisi manual)
 }

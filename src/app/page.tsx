@@ -1,4 +1,5 @@
 'use client'
+import {cn} from '@/lib/utils'
 import { withSubmitLock } from '@/lib/withSubmitLock'
 import { toPng } from "html-to-image"
 import ReceiptPreview from "@/components/ui/ReceiptPreview"
@@ -22,8 +23,7 @@ import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { Package,Loader2, Plus, Edit, Trash2, ShoppingCart, FileText, Wallet, TrendingUp, TrendingDown, Download, Calendar as CalendarIcon, Image as ImageIcon, Printer, ShoppingBag } from 'lucide-react'
 import { NextResponse } from "next/server"
-
-
+import { id } from 'date-fns/locale' // Import locale for Indonesia format
 
 function parseCart(cart: string) {
   try {
@@ -52,6 +52,8 @@ type RawMaterial = {
   unit: string
   totalPrice: number
   createdAt: string
+  // Date field for transaction date
+  date?: string 
 }
 
 type Size = {
@@ -258,7 +260,8 @@ export default function Home() {
     name: '',
     unitPrice: '',
     quantity: '',
-    unit: ''
+    unit: '',
+    date: new Date() // ⬅️ INITIAL STATE FOR DATE (Today)
   })
   const [editingRawMaterial, setEditingRawMaterial] = useState<RawMaterial | null>(null)
   const [isRawMaterialDialogOpen, setIsRawMaterialDialogOpen] = useState(false)
@@ -739,7 +742,7 @@ export default function Home() {
 
     setIsRawMaterialDialogOpen(false)
     // setEditingRawMaterial(null)
-    setRawMaterialForm({ name: '', unitPrice: '', quantity: '', unit: '' })
+    setRawMaterialForm({ name: '', unitPrice: '', quantity: '', unit: '', date: new Date() })
     } finally {
       setRawMaterialLoading(false)
     }
@@ -764,10 +767,16 @@ export default function Home() {
     }
 
     try {
+      // Format date to YYYY-MM-DD for API
+      const formattedDate = rawMaterialForm.date ? format(rawMaterialForm.date, 'yyyy-MM-dd') : new Date().toISOString().split('T')[0]
+
       const response = await fetch('/api/raw-materials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(rawMaterialForm),
+        body: JSON.stringify({
+          ...rawMaterialForm,
+          date: formattedDate // ⬅️ Send date to backend
+        }),
       })
 
       if (!response.ok) throw new Error()
@@ -782,6 +791,7 @@ export default function Home() {
         unitPrice: '',
         quantity: '',
         unit: '',
+        date: new Date()
       })
       setIsRawMaterialDialogOpen(false)
 
@@ -805,7 +815,9 @@ export default function Home() {
       name: material.name,
       unitPrice: material.unitPrice.toString(),
       quantity: material.quantity.toString(),
-      unit: material.unit
+      unit: material.unit,
+      // Preserve date if exists, else default to today
+      date: material.date ? new Date(material.date) : new Date()
     })
     setIsRawMaterialDialogOpen(true)
   }
@@ -814,12 +826,16 @@ export default function Home() {
     if (!editingRawMaterial) return
 
     try {
+       // Format date to YYYY-MM-DD for API
+       const formattedDate = rawMaterialForm.date ? format(rawMaterialForm.date, 'yyyy-MM-dd') : new Date().toISOString().split('T')[0]
+
       const response = await fetch('/api/raw-materials', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: editingRawMaterial.id,
-          ...rawMaterialForm
+          ...rawMaterialForm,
+          date: formattedDate // ⬅️ Send date to backend
         })
       })
 
@@ -1200,7 +1216,6 @@ const downloadReceiptPNG = async () => {
   }
   }
   // Handler Print Pre-Order
-  // Handler Print Pre-Order
   const handlePrintPreOrder = (po: any) => {
     // 1. Parse cart
     const cartItems = Array.isArray(po.cart) ? po.cart : JSON.parse(po.cart)
@@ -1380,6 +1395,7 @@ useEffect(() => {
                           unitPrice: '',
                           quantity: '',
                           unit: '',
+                          date: new Date() // Reset date to today
                         })
                         setIsRawMaterialDialogOpen(true)
                       }}
@@ -1401,6 +1417,34 @@ useEffect(() => {
                       <div><Label>Jumlah/Kuantitas</Label><Input id="quantity" type="number" value={rawMaterialForm.quantity} onChange={(e) => setRawMaterialForm({ ...rawMaterialForm, quantity: e.target.value })} placeholder="10" /></div>
                     </div>
                     <div><Label>Satuan</Label><Input id="unit" value={rawMaterialForm.unit} onChange={(e) => setRawMaterialForm({ ...rawMaterialForm, unit: e.target.value })} placeholder="Contoh : Pcs, Buah, kg, liter dll" /></div>
+                    
+                    {/* ⬇️ DATE PICKER ADDED HERE ⬇️ */}
+                    <div>
+                        <Label>Tanggal</Label>
+                        <Popover>
+                            <PopoverTrigger asChild>
+                            <Button
+                                variant={"outline"}
+                                className={cn(
+                                "w-full justify-start text-left font-normal",
+                                !rawMaterialForm.date && "text-muted-foreground"
+                                )}
+                            >
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {rawMaterialForm.date ? format(rawMaterialForm.date, "PPP", { locale: id }) : <span>Pilih tanggal</span>}
+                            </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0">
+                            <Calendar
+                                mode="single"
+                                selected={rawMaterialForm.date as Date}
+                                onSelect={(date) => setRawMaterialForm({ ...rawMaterialForm, date: date as Date })}
+                                initialFocus
+                            />
+                            </PopoverContent>
+                        </Popover>
+                    </div>
+
                     <div className="bg-muted p-3 rounded-lg"><Label>Harga Total</Label><p className="text-2xl font-bold">Rp {((parseFloat(rawMaterialForm.unitPrice) || 0) * (parseFloat(rawMaterialForm.quantity) || 0)).toLocaleString('id-ID')}</p></div>
                     <Button
                       onClick={handleSubmitRawMaterial}
@@ -1426,6 +1470,8 @@ useEffect(() => {
                     <TableHeader>
                       <TableRow>
                         <TableHead className="text-center whitespace-nowrap">No</TableHead>
+                        {/* ⬇️ DATE COLUMN ADDED HERE ⬇️ */}
+                        <TableHead className="text-center whitespace-nowrap">Tanggal</TableHead>
                         <TableHead className="text-center whitespace-nowrap">Nama</TableHead>
                         <TableHead className="text-center whitespace-nowrap">Harga Satuan</TableHead>
                         <TableHead className="text-center whitespace-nowrap">Jumlah</TableHead>
@@ -1438,7 +1484,7 @@ useEffect(() => {
                       {rawMaterials.length === 0 ? (
                         <TableRow>
                           <TableCell
-                            colSpan={7}
+                            colSpan={8} // Updated colSpan to 8
                             className="text-center py-8 text-muted-foreground whitespace-nowrap"
                           >
                             Belum ada bahan baku. Klik "Tambah Bahan Baku" untuk memulai.
@@ -1450,6 +1496,11 @@ useEffect(() => {
                             {/* NO */}
                             <TableCell className="text-center font-medium whitespace-nowrap">
                               {index + 1}
+                            </TableCell>
+
+                            {/* TANGGAL */}
+                            <TableCell className="text-center whitespace-nowrap">
+                              {material.date ? formatDate(material.date) : formatDate(material.createdAt)}
                             </TableCell>
 
                             {/* NAMA */}
@@ -2200,14 +2251,14 @@ useEffect(() => {
                   <div>
                     <Label>Tanggal Mulai</Label>
                     <Popover>
-                      <PopoverTrigger asChild><Button variant="outline" className="w-full justify-start text-left font-normal"><CalendarIcon className="mr-2 h-4 w-4" />{startDate ? format(startDate, 'PPP', { locale: undefined }) : 'Pilih tanggal'}</Button></PopoverTrigger>
+                      <PopoverTrigger asChild><Button variant="outline" className="w-full justify-start text-left font-normal"><CalendarIcon className="mr-2 h-4 w-4" />{startDate ? format(startDate, 'PPP', { locale: id }) : 'Pilih tanggal'}</Button></PopoverTrigger>
                       <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={startDate} onSelect={setStartDate} initialFocus /></PopoverContent>
                     </Popover>
                   </div>
                   <div>
                     <Label>Tanggal Akhir</Label>
                     <Popover>
-                      <PopoverTrigger asChild><Button variant="outline" className="w-full justify-start text-left font-normal"><CalendarIcon className="mr-2 h-4 w-4" />{endDate ? format(endDate, 'PPP', { locale: undefined }) : 'Pilih tanggal'}</Button></PopoverTrigger>
+                      <PopoverTrigger asChild><Button variant="outline" className="w-full justify-start text-left font-normal"><CalendarIcon className="mr-2 h-4 w-4" />{endDate ? format(endDate, 'PPP', { locale: id }) : 'Pilih tanggal'}</Button></PopoverTrigger>
                       <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={endDate} onSelect={setEndDate} initialFocus /></PopoverContent>
                     </Popover>
                   </div>
