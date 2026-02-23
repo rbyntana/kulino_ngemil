@@ -1,14 +1,6 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
-
-// datasource db {
-//   provider = "sqlite"
-//   url      = "file:./dev.db"
-// }
 
 datasource db {
   provider = "postgresql"
@@ -16,110 +8,96 @@ datasource db {
 }
 
 model RawMaterial {
-  id          String   @id @default(cuid())
-  name        String
-  unitPrice   Float
-  quantity    Float
-  unit        String
-  totalPrice  Float
-  
-  // ⬇️ UPDATE: Tambahkan kolom date di sini
-  date        DateTime? 
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  transactions Transaction[]
+  id           String        @id @default(cuid())
+  name         String
+  unitPrice    Float
+  quantity     Float
+  unit         String
+  totalPrice   Float
+  date         DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
   menuItems    MenuItem[]
+  transactions Transaction[]
 }
 
 model Size {
-  id        String  @id @default(cuid())
+  id        String   @id @default(cuid())
   size      String
   price     Float
   stock     Int
   menuId    String
-  menu      Menu    @relation(fields: [menuId], references: [id], onDelete: Cascade)
-  sales     Sale[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  sales     Sale[]
+  menu      Menu     @relation(fields: [menuId], references: [id], onDelete: Cascade)
 }
 
 model Menu {
-  id          String   @id @default(cuid())
-  name        String
-  image       String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  sizes       Size[]
-  sales       Sale[]
+  id           String     @id @default(cuid())
+  name         String
+  image        String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
   rawMaterials MenuItem[]
+  sales        Sale[]
+  sizes        Size[]
 }
 
 model MenuItem {
-  id              String       @id @default(cuid())
-  menuId          String
-  rawMaterialId   String
-  quantity        Float
-  menu            Menu         @relation(fields: [menuId], references: [id], onDelete: Cascade)
-  rawMaterial     RawMaterial  @relation(fields: [rawMaterialId], references: [id], onDelete: Cascade)
-  createdAt       DateTime     @default(now())
+  id            String      @id @default(cuid())
+  menuId        String
+  rawMaterialId String
+  quantity      Float
+  createdAt     DateTime    @default(now())
+  menu          Menu        @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  rawMaterial   RawMaterial @relation(fields: [rawMaterialId], references: [id], onDelete: Cascade)
 }
 
-// --- MODEL BARU: HEADER TRANSAKSI ---
 model SalesHeader {
-  id          String   @id @default(cuid())
+  id          String       @id @default(cuid())
   buyerName   String
   totalAmount Float
-  date        DateTime @default(now()) // ⬇️ PENTING: Header punya date
-  createdAt   DateTime @default(now())
-  
-  items       Sale[]   
+  date        DateTime     @default(now())
+  createdAt   DateTime     @default(now())
+  items       Sale[]
   transaction Transaction? @relation("transaksiUang")
 }
 
-// --- MODEL YANG DIUBAH: DETAIL ITEM ---
 model Sale {
-  id        String   @id @default(cuid())
+  id        String      @id @default(cuid())
   headerId  String
-  header    SalesHeader @relation(fields: [headerId], references: [id], onDelete: Cascade)
   menuId    String
   sizeId    String
   quantity  Int
   price     Float
   total     Float
-  date      DateTime @default(now()) 
-  createdAt DateTime @default(now())
-  menu      Menu     @relation(fields: [menuId], references: [id], onDelete: Cascade)
-  size      Size     @relation(fields: [sizeId], references: [id], onDelete: Cascade)
+  date      DateTime    @default(now())
+  createdAt DateTime    @default(now())
+  header    SalesHeader @relation(fields: [headerId], references: [id], onDelete: Cascade)
+  menu      Menu        @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  size      Size        @relation(fields: [sizeId], references: [id], onDelete: Cascade)
 }
 
 model Transaction {
-  id          String   @id @default(cuid())
-  type        String   // INCOME | EXPENSE
-  amount      Float
-  description String
-  
-  // ⬇️ PENTING: Kolom date ini yang akan tampil di Tab Transaksi
-  date        DateTime @default(now()) 
-  
-  createdAt   DateTime @default(now())
-
-  salesHeaderId String?  @unique
-  salesHeader   SalesHeader? @relation("transaksiUang", fields: [salesHeaderId], references: [id])
-
-  // 🔥 Untuk bahan baku
+  id            String       @id @default(cuid())
+  type          String
+  amount        Float
+  description   String
+  date          DateTime     @default(now())
+  createdAt     DateTime     @default(now())
+  salesHeaderId String?      @unique
   rawMaterialId String?
+  isManual      Boolean      @default(false)
   rawMaterial   RawMaterial? @relation(fields: [rawMaterialId], references: [id], onDelete: Cascade)
-
-  isManual   Boolean  @default(false)
+  salesHeader   SalesHeader? @relation("transaksiUang", fields: [salesHeaderId], references: [id])
 }
 
 model PreOrder {
   id          String   @id @default(cuid())
   buyerName   String
   totalAmount Int
-  status      String 
+  status      String
   cart        String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

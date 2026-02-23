@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 // GET all menus with sizes
 export async function GET() {
   try {
+    // Tetap butuh include sizes untuk POS
     const menus = await db.menu.findMany({
       include: {
         sizes: {
@@ -79,7 +80,7 @@ export async function PUT(request: NextRequest) {
         .filter((s: any) => s.id)
         .map((s: any) => s.id)
 
-      // 3️⃣ HAPUS size lama yang tidak ada di form 🔥
+      // 3️⃣ HAPUS size lama yang tidak ada di form
       await tx.size.deleteMany({
         where: {
           menuId: id,
@@ -91,22 +92,22 @@ export async function PUT(request: NextRequest) {
 
       // 4️⃣ Update / Create size
       for (const s of sizes) {
+        const data = {
+          size: s.size,
+          price: Number(s.price),
+          stock: Number(s.stock),
+        };
+
         if (s.id) {
           await tx.size.update({
             where: { id: s.id },
-            data: {
-              size: s.size,
-              price: Number(s.price),
-              stock: Number(s.stock),
-            },
+            data,
           })
         } else {
           await tx.size.create({
             data: {
               menuId: id,
-              size: s.size,
-              price: Number(s.price),
-              stock: Number(s.stock),
+              ...data,
             },
           })
         }
